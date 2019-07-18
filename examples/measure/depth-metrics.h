@@ -11,73 +11,22 @@
 #include <librealsense2/rsutil.h>
 #include <librealsense2/rs.hpp>
 //#include "rendering.h"
+#include <example.hpp>  
 
-namespace rs2
+//namespace rs2
+//{
+
+
+
+float evaluate_plane(const plane& plane, const float3& point)
 {
+	return plane.a * point.x + plane.b * point.y + plane.c * point.z + plane.d;
+}
 
 
-
-	struct plane
-	{
-		float a;
-		float b;
-		float c;
-		float d;
-	};
 	inline bool operator==(const plane& lhs, const plane& rhs) { return lhs.a == rhs.a && lhs.b == rhs.b && lhs.c == rhs.c && lhs.d == rhs.d; }
 
-	struct float3
-	{
-		float x, y, z;
-
-		float length() const { return sqrt(x * x + y * y + z * z); }
-
-		float3 normalize() const
-		{
-			return (length() > 0) ? float3{ x / length(), y / length(), z / length() } : *this;
-		}
-	};
-
-
-	inline float3 cross(const float3& a, const float3& b)
-	{
-		return { a.y * b.z - b.y * a.z, a.x * b.z - b.x * a.z, a.x * b.y - a.y * b.x };
-	}
-
-	inline float evaluate_plane(const plane& plane, const float3& point)
-	{
-		return plane.a * point.x + plane.b * point.y + plane.c * point.z + plane.d;
-	}
-
-	inline float3 operator*(const float3& a, float t)
-	{
-		return { a.x * t, a.y * t, a.z * t };
-	}
-
-	inline float3 operator/(const float3& a, float t)
-	{
-		return { a.x / t, a.y / t, a.z / t };
-	}
-
-	inline float3 operator+(const float3& a, const float3& b)
-	{
-		return { a.x + b.x, a.y + b.y, a.z + b.z };
-	}
-
-	inline float3 operator-(const float3& a, const float3& b)
-	{
-		return { a.x - b.x, a.y - b.y, a.z - b.z };
-	}
-
-	inline float3 lerp(const float3& a, const float3& b, float t)
-	{
-		return b * t + a * (1 - t);
-	}
-
-	inline float operator*(const float3& a, const float3& b)
-	{
-		return a.x * b.x + a.y * b.y + a.z * b.z;
-	}
+	
 
 
 	using plane_3d = std::array<float3, 4>;
@@ -110,7 +59,7 @@ namespace rs2
         };
 
         using callback_type = std::function<void(
-            const std::vector<rs2::float3>& points,
+            const std::vector<float3>& points,
             const plane p,
             const rs2::region_of_interest roi,
             const float baseline_mm,
@@ -122,24 +71,24 @@ namespace rs2
             bool record,
             std::vector<single_metric_data>& samples)>;
 
-        inline plane plane_from_point_and_normal(const rs2::float3& point, const rs2::float3& normal)
+        inline plane plane_from_point_and_normal(const float3& point, const float3& normal)
         {
             return{ normal.x, normal.y, normal.z, -(normal.x*point.x + normal.y*point.y + normal.z*point.z) };
         }
 
         //Based on: http://www.ilikebigbits.com/blog/2015/3/2/plane-from-points
-        inline plane plane_from_points(const std::vector<rs2::float3> points)
+        inline plane plane_from_points(const std::vector<float3> points)
         {
             if (points.size() < 3) throw std::runtime_error("Not enough points to calculate plane");
 
-            rs2::float3 sum = { 0,0,0 };
+            float3 sum = { 0,0,0 };
             for (auto point : points) sum = sum + point;
 
-            rs2::float3 centroid = sum / float(points.size());
+            float3 centroid = sum / float(points.size());
 
             double xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
             for (auto point : points) {
-                rs2::float3 temp = point - centroid;
+                float3 temp = point - centroid;
                 xx += temp.x * temp.x;
                 xy += temp.x * temp.y;
                 xz += temp.x * temp.z;
@@ -155,7 +104,7 @@ namespace rs2
             double det_max = std::max({ det_x, det_y, det_z });
             if (det_max <= 0) return{ 0, 0, 0, 0 };
 
-            rs2::float3 dir{};
+            float3 dir{};
             if (det_max == det_x)
             {
                 float a = static_cast<float>((xz*yz - xy*zz) / det_x);
@@ -227,5 +176,5 @@ namespace rs2
 				std::all_of(angles.begin(), angles.end(), [](float f) { return f < 0; });
 		}
 
-    }
+//    }
 //}

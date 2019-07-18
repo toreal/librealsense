@@ -28,12 +28,37 @@ const size_t IMU_FRAME_HEIGHT = 720;
 // Basic Data Types         //
 //////////////////////////////
 
+struct plane
+{
+	float a;
+	float b;
+	float c;
+	float d;
+};
+
+
 struct float3 { 
     float x, y, z; 
+
     float3 operator*(float t)
     {
         return { x * t, y * t, z * t };
     }
+
+	float operator*( const float3& b)
+	{
+		return x * b.x + y * b.y + z * b.z;
+	}
+
+
+	 float3 operator+( const float3& b)
+	{
+		return { x + b.x, y + b.y, z + b.z };
+	}
+	 float3 operator-(const float3& b)
+	 {
+		 return { x - b.x, y - b.y, z - b.z };
+	 }
 
     float3 operator-(float t)
     {
@@ -46,6 +71,11 @@ struct float3 {
         y = y * t;
         z = z * t;
     }
+
+	 float3 operator/( float t)
+	{
+		return { x / t, y / t, z / t };
+	}
 
     void operator=(float3 other)
     {
@@ -60,7 +90,21 @@ struct float3 {
         y += t2;
         z += t3;
     }
+
+	float length() const { return sqrt(x * x + y * y + z * z); }
+
+	
+
+	float3 normalize() const
+	{
+		return (length() > 0) ? float3{ x / length(), y / length(), z / length() } : float3{ x, y, z};
+	}
+	
+	
 };
+
+
+
 struct float2 { float x, y; };
 
 struct rect
@@ -83,11 +127,16 @@ struct rect
     }
 };
 
+
+
 //////////////////////////////
 // Simple font loading code //
 //////////////////////////////
 
 #include "../third-party/stb_easy_font.h"
+
+
+
 
 inline void draw_text(int x, int y, const char * text)
 {

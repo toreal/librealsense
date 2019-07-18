@@ -3,11 +3,11 @@
 
 #include <librealsense2/rs.hpp> // Include RealSense Cross Platform API
 #include <librealsense2/rsutil.h>
+#include <Windows.h>
 
 
 
-
-#include "example.hpp"          // Include short list of convenience functions for rendering
+        // Include short list of convenience functions for rendering
 
 #include "depth-metrics.h"
 
@@ -15,8 +15,8 @@ using namespace rs2;
 
 
 // This example will require several standard data-structures and algorithms:
-#define _USE_MATH_DEFINES
-#include <math.h>
+
+
 #include <queue>
 #include <unordered_set>
 #include <map>
@@ -31,81 +31,18 @@ using namespace rs2;
 #include "opencv2/highgui.hpp"
 #include <opencv2/opencv.hpp>
 #include <stdio.h>
+#include "state.h"
 
 
+void colorBound(const rs2::video_frame& frame);
 
 using namespace cv;
 
-using pixel = std::pair<int, int>;
+
 
 // Distance 3D is used to calculate real 3D distance between two pixels
 float dist_3d(const rs2::depth_frame& frame, pixel u, pixel v);
 
-// Toggle helper class will be used to render the two buttons
-// controlling the edges of our ruler
-struct toggle
-{
-    toggle() : x(0.f), y(0.f) {}
-    toggle(float xl, float yl)
-        : x(std::min(std::max(xl, 0.f), 1.f)),
-          y(std::min(std::max(yl, 0.f), 1.f))
-    {}
-
-    // Move from [0,1] space to pixel space of specific frame
-    pixel get_pixel(rs2::depth_frame frm) const
-    {
-        int px = x * frm.get_width();
-        int py = y * frm.get_height();
-        return{ px, py };
-    }
-
-    void render(const window& app)
-    {
-        glColor4f(0.f, 0.0f, 0.0f, 0.2f);
-        render_circle(app, 10);
-        render_circle(app, 8);
-        glColor4f(1.f, 0.9f, 1.0f, 1.f);
-        render_circle(app, 6);
-    }
-
-    void render_circle(const window& app, float r)
-    {
-        const float segments = 16;
-        glBegin(GL_TRIANGLE_STRIP);
-        for (auto i = 0; i <= segments; i++)
-        {
-            auto t = 2 * M_PI * float(i) / segments;
-
-            glVertex2f(x * app.width() + cos(t) * r,
-                y * app.height() + sin(t) * r);
-
-            glVertex2f(x * app.width(),
-                y * app.height());
-        }
-        glEnd();
-    }
-
-    // This helper function is used to find the button
-    // closest to the mouse cursor
-    // Since we are only comparing this distance, sqrt can be safely skipped
-    float dist_2d(const toggle& other) const
-    {
-        return pow(x - other.x, 2) + pow(y - other.y, 2);
-    }
-
-    float x;
-    float y;
-    bool selected = false;
-};
-
-// Application state shared between the main-thread and GLFW events
-struct state
-{
-    bool mouse_down = false;
-    toggle ruler_start;
-    toggle ruler_end;
-	toggle ruler_mid;
-};
 
 // Helper function to register to UI events
 void register_glfw_callbacks(window& app, state& app_state);
@@ -120,6 +57,7 @@ void render_simple_distance(const rs2::depth_frame& depth,
                             const window& app);
 
 
+int a=M_PI;
 
 rs2_intrinsics          _depth_intrinsic;
 
@@ -130,30 +68,43 @@ bool                    _use_gt;
 bool                    _plane_fit=true;
 rs2::region_of_interest      _roi;
 float                   _roi_percentage=0.4f;
-rs2::snapshot_metrics        _latest_metrics;
+snapshot_metrics        _latest_metrics;
 bool                    _active;
+bool                    bdo = true;
 
 std::mutex      _m;
-uchar* buf;
+uchar* buf=NULL;
 float baseD = -1;
 std::vector<float> baselist;
-rs2::float3 *  dbuf = new rs2::float3[320*240];
+float* dbuf;
+int depthw=640;
+int depthh=480;
 
 void constructPlane(const rs2::depth_frame& frame)
 {
 	float upixel[2];
-
+	auto pixels = (const uint16_t*)frame.get_data();
+	depthw = frame.get_width();
+	depthh = frame.get_height();
 	
-	for ( int x=0 ; x < 320; x++)
-		for (int y = 0; y < 240; y++)
+	dbuf= new float[depthw * depthh];
+	buf = new uchar[depthw*depthh];
+	for ( int x=0 ; x < depthw; x++)
+		for (int y = 0; y < depthh; y++)
 		{
-			upixel[0] = x;
-			upixel[1] = y;
-			auto udist = frame.get_distance(x, y);			
+			dbuf[y * depthw + x] = pixels[y * depthw + x];
+			//upixel[0] = x;
+			//upixel[1] = y;
+			//auto depth_raw = pixels[y * w + x];
 
-			// Deproject from pixel to point in 3D
-			rs2_intrinsics intr = frame.get_profile().as<rs2::video_stream_profile>().get_intrinsics(); // Calibration data
-			rs2_deproject_pixel_to_point(&dbuf[y*320+x].x, &intr, upixel, udist);
+			//if (depth_raw)
+			//{
+			//	auto udist = depth_raw * _depth_scale_units;
+
+			//	// Deproject from pixel to point in 3D
+			//	rs2_intrinsics intr = frame.get_profile().as<rs2::video_stream_profile>().get_intrinsics(); // Calibration data
+			//	rs2_deproject_pixel_to_point(&dbuf[y * 320 + x].x, &intr, upixel, udist);
+			//}
 
 
 		}
@@ -166,7 +117,7 @@ std::tuple<int, bool> get_inputs()
 	return std::make_tuple(_ground_truth_mm, _plane_fit);
 }
 
-std::array<rs2::float3, 4> get_plane()
+std::array<float3, 4> get_plane()
 {
 	
 	return _latest_metrics.plane_corners;
@@ -186,16 +137,17 @@ inline snapshot_metrics analyze_depth_image(
 	callback_type callback)
 {
 	
-	memset(buf, 0x00, 640 * 480);
+	
 	auto pixels = (const uint16_t*)frame.get_data();
 	const auto w = frame.get_width();
 	const auto h = frame.get_height();
-
+	if (buf != NULL)
+		memset(buf, 0x00, w*h);
 	snapshot_metrics result{ w, h, roi, {} };
 
 
 
-	std::vector<rs2::float3> roi_pixels;
+	std::vector<float3> roi_pixels;
 
 	//#pragma omp parallel for - TODO optimization envisaged
 	for (int y = roi.min_y; y < roi.max_y; ++y)
@@ -239,31 +191,54 @@ inline snapshot_metrics analyze_depth_image(
 
 			auto depth_raw = pixels[y * w + x];
 
-			if (depth_raw)
+			if (buf != NULL)
 			{
-				// units is float
-				float pixel[2] = { float(x), float(y) };
-				//float point[3];
-				rs2::float3 pp;
-				auto distance = depth_raw * units;
+				auto dbuf_raw = dbuf[y * w + x];
 
-				rs2_deproject_pixel_to_point(&pp.x, intrin, pixel, distance);
-				
-				float ret=evaluate_plane(p, pp);		
-				if (ret < 0)
-					ret = 0;
-				int val = (int)(ret * 50000);
-				if (val > 255)
-					val = 255;
-					buf[y * 320 + x] =val ;
+				if (depth_raw && dbuf_raw )
+				{
+					auto v =255- abs(depth_raw - dbuf_raw)*3;
+					if (v < 0)
+						v = 0;
+					
+						buf[y * w + x] = v;
+					
+
+				}else
+					buf[y * w + x] = 0;
+
+
+
 			}
+
+		
+
+			//if (depth_raw)
+			//{
+			//	// units is float
+			//	float pixel[2] = { float(x), float(y) };
+			//	//float point[3];
+			//	rs2::float3 pp;
+			//	auto distance = depth_raw * units;
+
+			//	rs2_deproject_pixel_to_point(&pp.x, intrin, pixel, distance);
+			//	
+			//	float ret=evaluate_plane(p, pp);		
+			//	if (ret < 0)
+			//		ret = 0;
+			//	int val = (int)(ret * 50000);
+			//	if (val > 255)
+			//		val = 255;
+			//	if ( buf != NULL)
+			//	buf[y * depthw + x] =val ;
+			//}
 		}
 
 
 
 	// Calculate intersection of the plane fit with a ray along the center of ROI
 	// that by design coincides with the center of the frame
-	rs2::float3 plane_fit_pivot = approximate_intersection(p, intrin, intrin->width / 2.f, intrin->height / 2.f);
+	float3 plane_fit_pivot = approximate_intersection(p, intrin, intrin->width / 2.f, intrin->height / 2.f);
 	float plane_fit_to_gt_offset_mm = (ground_truth_mm > 0.f) ? (plane_fit_pivot.z * 1000 - ground_truth_mm) : 0;
 
 	result.p = p;
@@ -299,7 +274,7 @@ int main(int argc, char * argv[]) try
 {
     // OpenGL textures for the color and depth frames
     texture depth_image, color_image;
-	buf = new uchar[640 * 480];
+	
 	
 
     // Colorizer is used to visualize depth data
@@ -423,7 +398,8 @@ int main(int argc, char * argv[]) try
     cfg.enable_stream(RS2_STREAM_DEPTH); // Enable default depth
     // For the color stream, set format to RGBA
     // To allow blending of the color frame on top of the depth frame
-    cfg.enable_stream(RS2_STREAM_COLOR, RS2_FORMAT_RGBA8);
+    //cfg.enable_stream(RS2_STREAM_COLOR, RS2_FORMAT_RGBA8);
+	cfg.enable_stream(RS2_STREAM_COLOR,1920,1080, RS2_FORMAT_ANY);
     auto profile = pipe.start(cfg);
 
     auto sensor = profile.get_device().first<rs2::depth_sensor>();
@@ -466,9 +442,10 @@ int main(int argc, char * argv[]) try
 
     // Define application state and position the ruler buttons
     state app_state;
-    app_state.ruler_start = { 0.45f, 0.5f };
-    app_state.ruler_end   = { 0.55f, 0.5f };
-	app_state.ruler_mid = { 0.55f, 0.5f };
+    app_state.ruler_start = { 0.45f, 0.4f };
+    app_state.ruler_end   = { 0.55f, 0.4f };
+	app_state.ruler_bottomS = { 0.45f, 0.6f };
+	app_state.ruler_bottomE = { 0.55f, 0.6f };
     register_glfw_callbacks(app, app_state);
 
     // After initial post-processing, frames will flow into this queue:
@@ -481,47 +458,53 @@ int main(int argc, char * argv[]) try
     // apply post-processing and send the result to the main thread for rendering
     // It recieves synchronized (but not spatially aligned) pairs
     // and outputs synchronized and aligned pairs
-    std::thread video_processing_thread([&]() {
-        while (alive)
-        {
-            // Fetch frames from the pipeline and send them for processing
-            rs2::frameset data;
-            if (pipe.poll_for_frames(&data))
-            {
-                // First make the frames spatially aligned
-                data = data.apply_filter(align_to);
+	std::thread video_processing_thread([&]() {
+		while (alive)
+		{
+			// Fetch frames from the pipeline and send them for processing
+			rs2::frameset data;
+			if (pipe.poll_for_frames(&data))
+			{
+				// First make the frames spatially aligned
+				data = data.apply_filter(align_to);
 
-                // Decimation will reduce the resultion of the depth image,
-                // closing small holes and speeding-up the algorithm
-                data = data.apply_filter(dec);
+				// Decimation will reduce the resultion of the depth image,
+				// closing small holes and speeding-up the algorithm
+				//data = data.apply_filter(dec);
 
-                // To make sure far-away objects are filtered proportionally
-                // we try to switch to disparity domain
-                data = data.apply_filter(depth2disparity);
+				// To make sure far-away objects are filtered proportionally
+				// we try to switch to disparity domain
+				data = data.apply_filter(depth2disparity);
 
-                // Apply spatial filtering
-                data = data.apply_filter(spat);
+				// Apply spatial filtering
+				data = data.apply_filter(spat);
 
-                // Apply temporal filtering
-                data = data.apply_filter(temp);
+				// Apply temporal filtering
+				data = data.apply_filter(temp);
 
-                // If we are in disparity domain, switch back to depth
-                data = data.apply_filter(disparity2depth);
+				// If we are in disparity domain, switch back to depth
+				data = data.apply_filter(disparity2depth);
 
-                //// Apply color map for visualization of depth
-                data = data.apply_filter(color_map);
+				//// Apply color map for visualization of depth
+				data = data.apply_filter(color_map);
 
-                // Send resulting frames for visualization in the main thread
-                postprocessed_frames.enqueue(data);
-            }
+				// Send resulting frames for visualization in the main thread
+				postprocessed_frames.enqueue(data);
+			}
 
 
-			std::vector<rs2::single_metric_data> sample;
+			std::vector<single_metric_data> sample;
 			for (auto&& f : data)
 			{
 				auto profile = f.get_profile();
 				auto stream_type = profile.stream_type();
 				auto stream_format = profile.format();
+
+				if (RS2_STREAM_COLOR == stream_type)
+				{
+					colorBound(f);
+				}
+
 
 				if ((RS2_STREAM_DEPTH == stream_type) && (RS2_FORMAT_Z16 == stream_format))
 				{
@@ -571,15 +554,37 @@ int main(int argc, char * argv[]) try
 	namedWindow("debug", WINDOW_AUTOSIZE);
 	namedWindow("dist", WINDOW_AUTOSIZE);
 	namedWindow("src", WINDOW_AUTOSIZE);
+	namedWindow("color", WINDOW_AUTOSIZE);
+	namedWindow("mask", WINDOW_AUTOSIZE);
+
 
 	std::vector<std::vector<cv::Point>> contours;
-
+	std::vector<std::vector<cv::Point>> appros;
 	std::vector<cv::Vec4i> hierarchy;
 	RNG rng(12345);
 
 
+	bool bpressed = false;
+
     while(app) // Application still alive?
     {
+
+		if ( GetKeyState(VK_SHIFT) & 0x8000)
+		{
+			
+			// Shift down
+			if (!bpressed)
+			{
+				bdo = !bdo;
+				printf(bdo ? "true" : "false");
+				bpressed = true;
+			}
+
+			
+		}
+		else
+			bpressed = false;
+
         // Fetch the latest available post-processed frameset
         postprocessed_frames.poll_for_frame(&current_frameset);
 
@@ -587,6 +592,8 @@ int main(int argc, char * argv[]) try
         {
             auto depth = current_frameset.get_depth_frame();
             auto color = current_frameset.get_color_frame();
+
+			
             auto colorized_depth = current_frameset.first(RS2_STREAM_DEPTH, RS2_FORMAT_RGB8);
 
             glEnable(GL_BLEND);
@@ -608,54 +615,41 @@ int main(int argc, char * argv[]) try
             // Render the ruler
             app_state.ruler_start.render(app);
             app_state.ruler_end.render(app);
-			app_state.ruler_mid.render(app);
+			app_state.ruler_bottomS.render(app);
+			app_state.ruler_bottomE.render(app);
 
             glColor3f(1.f, 1.f, 1.f);
             glDisable(GL_BLEND);
 
 			
 
-			// Creating OpenCV Matrix from a color image
-			Mat colormat(Size(depth.get_width(), depth.get_height()), CV_8UC1, (void*)buf, Mat::AUTO_STEP);
-
-			Mat dst1, dst2, canny_output;
-
-			Mat ele = getStructuringElement(cv::MORPH_DILATE, Size(10, 10));
-
-			Mat ele2 = getStructuringElement(cv::MORPH_ERODE, Size(10, 10));
-
-			//		cvtColor(gray1, src_gray, CV_BGR2GRAY);
-
 			
 			float bd = (baseD - _latest_metrics.distance) * 3;
-			if (baseD > 0 && bd > 10)
-			{
-				
+
+			if (baseD > 0 && bd > 10 &&bdo && buf != NULL)
+			{			
+
+				// Creating OpenCV Matrix from a color image
+				Mat colormat(Size(depth.get_width(), depth.get_height()), CV_8UC1, (void*)buf, Mat::AUTO_STEP);
+
+				Mat dst1, dst2, canny_output;
+
+				Mat ele = getStructuringElement(cv::MORPH_DILATE, Size(10, 10));
+				Mat ele2 = getStructuringElement(cv::MORPH_ERODE, Size(10, 10));
 
 				if (bd > 128)
 					bd = 128;
 
-
-
-				threshold(colormat, dst1, bd, 255, cv::THRESH_BINARY);
-
+				threshold(colormat, dst1, 128, 255, cv::THRESH_BINARY);
 				cv::erode(dst1, dst2, ele2);
-				cv:dilate(dst2, dst1, ele);
+				cv:dilate(dst2, dst1, ele);				
+				int thresh = 100;
 
 				imshow("dist", dst1);
 				imshow("src", colormat);
 
-				int thresh = 100;
-
-
-				/// Detect edges using canny
-
 				Canny(dst1, canny_output, thresh, thresh * 2, 3);
 
-				//	cv::imshow("canny_output", canny_output);
-
-					/// Find contours
-			
 				contours.clear();
 				hierarchy.clear();
 
@@ -669,28 +663,51 @@ int main(int argc, char * argv[]) try
 						if (contours[i].size() > cnt.size())
 							cnt = contours[i];
 					}
-					RotatedRect rect= minAreaRect(cnt);
-					Point2f var[4];
-					rect.points(var);
 
-					circle(canny_output, var[0], 5, Scalar(128));
-					circle(canny_output, var[1], 5, Scalar(128));
-					circle(canny_output, var[2], 5, Scalar(128));
-					circle(canny_output, var[3], 5, Scalar(128));
+					auto epsilon = 0.1 * arcLength(cnt, true);
+					appros.clear();
+					appros.resize(1);
+					 approxPolyDP(cnt, appros[0], epsilon, true);
 
-					app_state.ruler_start = toggle(var[0].x / 320, var[0].y / 240);
-					app_state.ruler_end = toggle(var[1].x / 320, var[1].y / 240);
-					app_state.ruler_mid = toggle(var[2].x / 320, var[2].y / 240);
+					 drawContours(canny_output, appros, 0, Scalar(200));
 
-					
+					 std::cout << appros[0].size() << std::endl;
+
+					 Point2f var[4];
+
+					 if (appros[0].size() == 4)
+					 {
+						 for (int i = 0; i < 4; i++)
+						 {
+							 var[i].x = appros[0][i].x;
+							 var[i].y = appros[0][i].y;
+
+						 }
+
+					 }
+					 else
+					 {
+
+
+						 RotatedRect rect = minAreaRect(cnt);
+						 
+						 rect.points(var);
+
+						 circle(canny_output, var[0], 5, Scalar(128));
+						 circle(canny_output, var[1], 5, Scalar(128));
+						 circle(canny_output, var[2], 5, Scalar(128));
+						 circle(canny_output, var[3], 5, Scalar(128));					 
+
+					 }
+					 app_state.update( toggle(var[0].x / depthw, var[0].y / depthh)
+					 , toggle(var[1].x / depthw, var[1].y / depthh)
+					 , toggle(var[2].x / depthw, var[2].y / depthh)
+					 , toggle(var[3].x / depthw, var[3].y / depthh));
+
 				}
 
-
-				//uchar* dbuf = colormat.data;
-
-
 				imshow("debug", canny_output);
-				//waitKey(0);
+
 			}//has baseD
         }
     }
@@ -714,11 +731,15 @@ catch (const std::exception& e)
 
 float dist_3d(const rs2::depth_frame& frame, pixel u, pixel v)
 {
-    float upixel[2]; // From pixel
-	float* upoint;// [3] ; // From point (in 3D)
+	if (baseD < 0 || buf ==NULL)
+		return 0;
+    
+	
+	float upixel[2]; // From pixel
+	float upoint[3] ; // From point (in 3D)
 
     float vpixel[2]; // To pixel
-	float* vpoint;// [3] ; // To point (in 3D)
+	float vpoint[3] ; // To point (in 3D)
 
     // Copy pixels into the arrays (to match rsutil signatures)
     upixel[0] = u.first;
@@ -741,12 +762,33 @@ float dist_3d(const rs2::depth_frame& frame, pixel u, pixel v)
 
     // Calculate euclidean distance between the two points
 
-	upoint = &dbuf[u.second * 320 + u.first].x;
-	vpoint = &dbuf[v.second * 320 + v.first].y;
+	float udis = dbuf[u.second * depthw + u.first];
+	float vdis = dbuf[v.second * depthw + v.first];
 
-    return sqrt(pow(upoint[0] - vpoint[0], 2) +
-                pow(upoint[1] - vpoint[1], 2) +
-                pow(upoint[2] - vpoint[2], 2));
+	udis = udis * _depth_scale_units * _latest_metrics.distance / baseD;
+	vdis = vdis * _depth_scale_units * _latest_metrics.distance / baseD;
+		rs2_intrinsics intr = frame.get_profile().as<rs2::video_stream_profile>().get_intrinsics(); // Calibration data
+		rs2_deproject_pixel_to_point(upoint, &intr, upixel, udis);
+		rs2_deproject_pixel_to_point(vpoint, &intr, vpixel, vdis);
+
+		plane p = _latest_metrics.p;
+		// Find distance from point to the reconstructed plane
+		auto dist2plane = p.a * upoint[0] + p.b * upoint[1] + p.c * upoint[2] + p.d;
+//		// Project the point to plane in 3D and find distance to the intersection point
+		float3 upointi = { float(upoint[0] - dist2plane * p.a),
+										float(upoint[1] - dist2plane * p.b),
+										float(upoint[2]- dist2plane * p.c) };
+	
+		auto dist2plane2 = p.a * vpoint[0] + p.b * vpoint[1] + p.c * vpoint[2] + p.d;
+		//		// Project the point to plane in 3D and find distance to the intersection point
+		float3 vpointi = { float(vpoint[0] - dist2plane2 * p.a),
+										float(vpoint[1] - dist2plane2 * p.b),
+										float(vpoint[2] - dist2plane2 * p.c) };
+
+
+    return sqrt(pow(upointi.x - vpointi.x, 2) +
+                pow(upointi.y - vpointi.y, 2) +
+                pow(upointi.z - vpointi.z, 2));
 }
 
 void draw_line(float x0, float y0, float x1, float y1, int width)
@@ -766,17 +808,28 @@ void render_simple_distance(const rs2::depth_frame& depth,
                             const state& s,
                             const window& app)
 {
-    pixel center,h;
+    pixel center,h,bottom,bsh;
 
     glColor4f(0.f, 0.0f, 0.0f, 0.2f);
     draw_line(s.ruler_start.x * app.width(),
         s.ruler_start.y * app.height(),
         s.ruler_end.x   * app.width(),
         s.ruler_end.y   * app.height(), 9);
-	draw_line(s.ruler_mid.x * app.width(),
-		s.ruler_mid.y * app.height(),
+	draw_line(s.ruler_bottomE.x * app.width(),
+		s.ruler_bottomE.y * app.height(),
 		s.ruler_end.x * app.width(),
 		s.ruler_end.y * app.height(), 9);
+
+	draw_line(s.ruler_start.x * app.width(),
+		s.ruler_start.y * app.height(),
+		s.ruler_bottomS.x * app.width(),
+		s.ruler_bottomS.y * app.height(), 9);
+	draw_line(s.ruler_bottomE.x * app.width(),
+		s.ruler_bottomE.y * app.height(),
+		s.ruler_bottomS.x * app.width(),
+		s.ruler_bottomS.y * app.height(), 9);
+
+
 
     glColor4f(0.f, 0.0f, 0.0f, 0.3f);
     draw_line(s.ruler_start.x * app.width(),
@@ -784,10 +837,21 @@ void render_simple_distance(const rs2::depth_frame& depth,
         s.ruler_end.x   * app.width(),
         s.ruler_end.y   * app.height(), 7);
 
-	draw_line(s.ruler_mid.x * app.width(),
-		s.ruler_mid.y * app.height(),
+	draw_line(s.ruler_bottomE.x * app.width(),
+		s.ruler_bottomE.y * app.height(),
 		s.ruler_end.x * app.width(),
 		s.ruler_end.y * app.height(), 7);
+
+
+	draw_line(s.ruler_start.x * app.width(),
+		s.ruler_start.y * app.height(),
+		s.ruler_bottomS.x * app.width(),
+		s.ruler_bottomS.y * app.height(), 7);
+
+	draw_line(s.ruler_bottomE.x * app.width(),
+		s.ruler_bottomE.y * app.height(),
+		s.ruler_bottomS.x * app.width(),
+		s.ruler_bottomS.y * app.height(), 7);
 
     glColor4f(1.f, 1.0f, 1.0f, 1.f);
     draw_line(s.ruler_start.x * app.width(),
@@ -795,38 +859,71 @@ void render_simple_distance(const rs2::depth_frame& depth,
               s.ruler_end.x   * app.width(),
               s.ruler_end.y   * app.height(), 3);
 
-	draw_line(s.ruler_mid.x * app.width(),
-		s.ruler_mid.y * app.height(),
+	draw_line(s.ruler_bottomE.x * app.width(),
+		s.ruler_bottomE.y * app.height(),
 		s.ruler_end.x * app.width(),
 		s.ruler_end.y * app.height(), 3);
+	draw_line(s.ruler_start.x * app.width(),
+		s.ruler_start.y * app.height(),
+		s.ruler_bottomS.x * app.width(),
+		s.ruler_bottomS.y * app.height(), 3);
 
+	draw_line(s.ruler_bottomE.x * app.width(),
+		s.ruler_bottomE.y * app.height(),
+		s.ruler_bottomS.x * app.width(),
+		s.ruler_bottomS.y * app.height(), 3);
 
 
 
     auto from_pixel = s.ruler_start.get_pixel(depth);
     auto to_pixel =   s.ruler_end.get_pixel(depth);
-	auto mid_pixel = s.ruler_mid.get_pixel(depth);
+	auto be_pixel = s.ruler_bottomE.get_pixel(depth);
+	auto bs_pixel = s.ruler_bottomS.get_pixel(depth);
     float air_dist = dist_3d(depth, from_pixel, to_pixel);
-	float h_dist = dist_3d(depth, mid_pixel, to_pixel);
+	float h_dist = dist_3d(depth, be_pixel, to_pixel);
+	float b_dist = dist_3d(depth, be_pixel, bs_pixel);
+	float eh_dist = dist_3d(depth, from_pixel, bs_pixel);
+
 
     center.first  = (from_pixel.first + to_pixel.first) / 2;
     center.second = (from_pixel.second + to_pixel.second) / 2;
 
-	h.first = (mid_pixel.first + to_pixel.first) / 2;
-	h.second = (mid_pixel.second + to_pixel.second) / 2;
+	h.first = (be_pixel.first + to_pixel.first) / 2;
+	h.second = (be_pixel.second + to_pixel.second) / 2;
+
+	bottom.first = (bs_pixel.first + be_pixel.first) / 2;
+	bottom.second = (bs_pixel.second + be_pixel.second) / 2;
+
+	bsh.first = (bs_pixel.first + from_pixel.first) / 2;
+	bsh.second = (bs_pixel.second + from_pixel.second) / 2;
 
 
 
-    std::stringstream ss,sh;
+
+    std::stringstream ss,sh, sb, se;
     ss << int(air_dist * 1000) << " mm";
 	sh << int(h_dist * 1000) << " mm";
+	sb << int(b_dist * 1000) << " mm";
+	se << int(eh_dist * 1000) << " mm";
+
+
     auto str = ss.str();
 	auto strh = sh.str();
+	auto strb = sb.str();
+	auto stre = se.str();
+
     auto x = (float(center.first)  / depth.get_width())  * app.width() + 15;
     auto y = (float(center.second) / depth.get_height()) * app.height() + 15;
 
 	auto xh = (float(h.first) / depth.get_width()) * app.width() + 15;
 	auto yh = (float(h.second) / depth.get_height()) * app.height() + 15;
+
+	auto xb = (float(bottom.first) / depth.get_width()) * app.width() + 15;
+	auto yb = (float(bottom.second) / depth.get_height()) * app.height() + 15;
+
+	auto xe = (float(bsh.first) / depth.get_width()) * app.width() + 15;
+	auto ye = (float(bsh.second) / depth.get_height()) * app.height() + 15;
+
 
     auto w = stb_easy_font_width((char*)str.c_str());
 	auto wh = stb_easy_font_width((char*)strh.c_str());
@@ -852,16 +949,39 @@ void render_simple_distance(const rs2::depth_frame& depth,
 	glEnd();
 
 
+	glBegin(GL_TRIANGLES);
+	glVertex2f(xb - 3, yb - 10);
+	glVertex2f(xb + wh + 2, yb - 10);
+	glVertex2f(xb + wh + 2, yb + 2);
+	glVertex2f(xb + wh + 2, yb + 2);
+	glVertex2f(xb - 3, yb + 2);
+	glVertex2f(xb - 3, yb - 10);
+	glEnd();
+
+	glBegin(GL_TRIANGLES);
+	glVertex2f(xe - 3, ye - 10);
+	glVertex2f(xe + wh + 2, ye - 10);
+	glVertex2f(xe + wh + 2, ye + 2);
+	glVertex2f(xe + wh + 2, ye + 2);
+	glVertex2f(xe - 3, ye + 2);
+	glVertex2f(xe - 3, ye - 10);
+	glEnd();
+
     // Draw white text label
     glColor4f(1.f, 1.f, 1.f, 1.f);
     draw_text(x, y, str.c_str());
 	draw_text(xh, yh, strh.c_str());
+	draw_text(xb, yb, strb.c_str());
+	draw_text(xe, ye, stre.c_str());
 
 
 	if (baseD < 0)
 	{
-		if (baselist.size() < 100 && _latest_metrics.distance > 100 && _latest_metrics.distance < 1000)
+		if (baselist.size() < 100)
+		{
+			if ( _latest_metrics.distance > 100 && _latest_metrics.distance < 1000)
 			baselist.push_back(_latest_metrics.distance);
+		}
 		else
 		{
 			float sum = 0; 
@@ -901,7 +1021,10 @@ void register_glfw_callbacks(window& app, state& app_state)
         toggle cursor{ float(x) / app.width(), float(y) / app.height() };
         std::vector<toggle*> toggles{
             &app_state.ruler_start,
-            &app_state.ruler_end };
+            &app_state.ruler_end,
+				& app_state.ruler_bottomS,
+					& app_state.ruler_bottomE
+		};
 
         if (app_state.mouse_down)
         {
