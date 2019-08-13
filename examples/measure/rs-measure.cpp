@@ -33,10 +33,15 @@ using namespace rs2;
 #include <stdio.h>
 #include "state.h"
 
-
-void colorBound(const rs2::video_frame& frame);
-
 using namespace cv;
+
+void prepare3D(std::vector<cv::Point2f> bookPoints, float book);
+void colorBound(const rs2::video_frame& frame, float dep );
+void drawIR(Mat src);
+void initFrame(const rs2::video_frame& frame);
+
+
+
 
 
 //void render_simple_distance(const rs2::depth_frame& depth,
@@ -54,10 +59,11 @@ int                     _ground_truth_mm;
 //bool                    _use_gt;
 //bool                    _plane_fit=true;
 rs2::region_of_interest      _roi;
-float                   _roi_percentage=0.4f;
+float                   _roi_percentage=0.25f;
+bool                     bsave=false;
 //snapshot_metrics        _latest_metrics;
 //bool                    _active;
-bool                    bdo = true;
+
 
 
 //uchar* buf=NULL;
@@ -70,7 +76,7 @@ bool                    bdo = true;
 
 
 
-
+void myregister_glfw_callbacks(window& app, state& app_state);
 
 
 int main(int argc, char * argv[]) try
@@ -125,13 +131,14 @@ int main(int argc, char * argv[]) try
     // For the color stream, set format to RGBA
     // To allow blending of the color frame on top of the depth frame
     cfg.enable_stream(RS2_STREAM_COLOR, RS2_FORMAT_RGBA8);
+	cfg.enable_stream(RS2_STREAM_INFRARED);
 	//cfg.enable_stream(RS2_STREAM_COLOR,1920,1080, RS2_FORMAT_ANY);
     auto profile = pipe.start(cfg);
 
     auto sensor = profile.get_device().first<rs2::depth_sensor>();
 
-	app_state._depth_scale_units =sensor.get_depth_scale();
-
+	app_state._depth_scale_units =  sensor.get_depth_scale();
+	//app_state.real= sensor.get_depth_scale();
 
 	// Retrieve stereo baseline for supported devices
 	auto baseline_mm = -1.f;
@@ -155,7 +162,7 @@ int main(int argc, char * argv[]) try
     app_state.ruler_end   = { 0.55f, 0.4f };
 	app_state.ruler_bottomS = { 0.45f, 0.6f };
 	app_state.ruler_bottomE = { 0.55f, 0.6f };
-    register_glfw_callbacks(app, (glfw_state&)app_state);
+    myregister_glfw_callbacks(app, (state&)app_state);
 
     // After initial post-processing, frames will flow into this queue:
     rs2::frame_queue postprocessed_frames;
@@ -175,7 +182,7 @@ int main(int argc, char * argv[]) try
 			if (pipe.poll_for_frames(&data))
 			{
 				// First make the frames spatially aligned
-				data = data.apply_filter(align_to);
+				//data = data.apply_filter(align_to);
 
 				// Decimation will reduce the resultion of the depth image,
 				// closing small holes and speeding-up the algorithm
@@ -211,7 +218,42 @@ int main(int argc, char * argv[]) try
 
 				if (RS2_STREAM_COLOR == stream_type)
 				{
-					colorBound(f);
+					//float pos[12];
+					if (bsave)
+					{
+						/*std::vector<cv::Point3f> projectedPoints;
+						for (int k = 0; k < 4; k++)
+						{
+							projectedPoints.push_back(Point3f(app_state.bpos[k].x/ app_state.real, app_state.bpos[k].y/ app_state.real, app_state.bpos[k].z/ app_state.real));
+						}*/
+						colorBound(f, app_state.finalDepth);
+					}
+				}
+				if (stream_type == RS2_STREAM_INFRARED)
+				{
+					rs2::video_frame frame = f;
+					int h = frame.get_height();
+					int w = frame.get_width();
+					Mat dsrc(h, w, CV_8UC1, (void*)f.get_data(), Mat::AUTO_STEP);
+
+					if (!bsave)
+					{
+						
+						imwrite("C:\\james\\images\\d0.bmp", dsrc);
+						
+						bsave = true;
+					}
+					else
+					{
+						/*std::vector<cv::Point3f> projectedPoints;
+						for (int k = 0; k < 4; k++)
+						{
+							projectedPoints.push_back(Point3f(app_state.bpos[k].x/ app_state.real, app_state.bpos[k].y / app_state.real, app_state.bpos[k].z / app_state.real));
+						}*/
+						drawIR(dsrc);
+
+					}
+
 				}
 
 
@@ -221,25 +263,30 @@ int main(int argc, char * argv[]) try
 					rs2_intrinsics intrin{};
 					int gt_mm{};
 					bool plane_fit_set{};
-					rs2::region_of_interest roi{};
+					
 					{
 						std::lock_guard<std::mutex> lock(app_state._m);
 						su = app_state._depth_scale_units;
 						baseline = _stereo_baseline_mm;
 						auto depth_profile = profile.as<rs2::video_stream_profile>();
 						intrin = depth_profile.get_intrinsics();
+						/*intrin.fx = 480.46025019362213;
+						intrin.fy = 480.46025019362213;
+						intrin.ppx = 320;
+						intrin.ppx = 240;*/
+
 						app_state.intr = intrin;
 						_roi = { int(intrin.width * (0.5f - 0.5f * _roi_percentage)),
 							int(intrin.height * (0.5f - 0.5f * _roi_percentage)),
 							int(intrin.width * (0.5f + 0.5f * _roi_percentage)),
 							int(intrin.height * (0.5f + 0.5f * _roi_percentage)) };
 
-						roi = _roi;
+						app_state.roi = _roi;
 					}
 
 					//std::tie(gt_mm, plane_fit_set) = get_inputs();
 
-					auto metrics = app_state.analyze_depth_image(f, su, baseline, &intrin, roi, _ground_truth_mm, plane_fit_set, sample, false, NULL);
+					auto metrics = app_state.analyze_depth_image(f, su, baseline, &intrin, app_state.roi, _ground_truth_mm, plane_fit_set, sample, false, NULL);
 
 					{
 						std::lock_guard<std::mutex> lock(app_state._m);
@@ -265,18 +312,20 @@ int main(int argc, char * argv[]) try
 	namedWindow("src", WINDOW_AUTOSIZE);
 	namedWindow("color", WINDOW_AUTOSIZE);
 	namedWindow("mask", WINDOW_AUTOSIZE);
+	namedWindow("grabCut", WINDOW_AUTOSIZE);
 
 
 	std::vector<std::vector<cv::Point>> contours;
 	std::vector<std::vector<cv::Point>> appros;
 	std::vector<cv::Vec4i> hierarchy;
-	RNG rng(12345);
+	//RNG rng(12345);
 
 
 	bool bpressed = false;
 
     while(app) // Application still alive?
     {
+		bool initf = false;
 
 		if ( GetKeyState(VK_SHIFT) & 0x8000)
 		{
@@ -284,8 +333,8 @@ int main(int argc, char * argv[]) try
 			// Shift down
 			if (!bpressed)
 			{
-				bdo = !bdo;
-				printf(bdo ? "true" : "false");
+				app_state.bdo = !app_state.bdo;
+				printf(app_state.bdo ? "true" : "false");
 				bpressed = true;
 			}
 
@@ -293,6 +342,22 @@ int main(int argc, char * argv[]) try
 		}
 		else
 			bpressed = false;
+
+		auto  key = GetKeyState(97); //VK_NUMPAD1 '1'
+		std::cout << key << std::endl;
+		if (key & 0x8000) //'a'
+		{
+			app_state.reset(true);
+		}
+
+
+		key = GetKeyState(98); //VK_NUMPAD1 '2'
+		std::cout << key << std::endl;
+		if (key & 0x8000) //'a'
+		{
+			initf = true;
+		}
+
 
         // Fetch the latest available post-processed frameset
         postprocessed_frames.poll_for_frame(&current_frameset);
@@ -302,6 +367,10 @@ int main(int argc, char * argv[]) try
             auto depth = current_frameset.get_depth_frame();
             auto color = current_frameset.get_color_frame();
 
+			if (initf)
+			{
+				initFrame(color);
+			}
 			
             auto colorized_depth = current_frameset.first(RS2_STREAM_DEPTH, RS2_FORMAT_RGB8);
 
@@ -316,7 +385,7 @@ int main(int argc, char * argv[]) try
 
             // Render the color frame (since we have selected RGBA format
             // pixels out of FOV will appear transparent)
-            color_image.render(color, { 0, 0, app.width(), app.height() });
+            //color_image.render(color, { 0, 0, app.width(), app.height() });
 
             // Render the simple pythagorean distance
             auto ret=app_state.render_simple_distance( app_state, app);
@@ -334,12 +403,12 @@ int main(int argc, char * argv[]) try
 			
 			float bd = (app_state.baseD - app_state._latest_metrics.distance) * 3;
 
-			if (app_state.baseD > 0 && bd > 10 &&bdo && app_state.buf != NULL)
+			if (app_state.baseD > 0 && bd > 10 && app_state.bdo && app_state.buf != NULL)
 			{			
 
 				// Creating OpenCV Matrix from a color image
 				Mat colormat(Size(depth.get_width(), depth.get_height()), CV_8UC1, (void*)app_state.buf, Mat::AUTO_STEP);
-
+				
 				Mat dst1, dst2, canny_output;
 
 				Mat ele = getStructuringElement(cv::MORPH_DILATE, Size(10, 10));
@@ -348,7 +417,7 @@ int main(int argc, char * argv[]) try
 				if (bd > 128)
 					bd = 128;
 
-				threshold(colormat, dst1, 128, 255, cv::THRESH_BINARY);
+				threshold(colormat, dst1, 128, 255, cv::THRESH_BINARY|cv::THRESH_OTSU);
 				cv::erode(dst1, dst2, ele2);
 				cv:dilate(dst2, dst1, ele);				
 				int thresh = 100;
@@ -363,35 +432,249 @@ int main(int argc, char * argv[]) try
 
 				findContours(canny_output, contours, hierarchy, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE, Point(0, 0));
 				
+	
+
+
+				
+
+
+
+				
+
+				int ind = 0;
 				if (contours.size() > 0)
 				{
 					std::vector<cv::Point> cnt = contours[0];
-					for (int i = 1; i < contours.size(); i++)
+					float mind = FLT_MAX;
+					for (int i = 0; i < contours.size(); i++)
 					{
-						if (contours[i].size() > cnt.size())
+						int csize = contours[i].size();
+						float sumx = 0;
+						float sumy = 0;
+						for (int j = 0; j < csize; j++)
+						{
+							sumx += contours[i].at(j).x;
+							sumy += contours[i].at(j).y;
+
+						}
+
+						sumx = sumx / csize;
+						sumy = sumy / csize;
+
+						float dis = (sumx - app_state.depthw / 2)* (sumx - app_state.depthw / 2)+ (sumy - app_state.depthh / 2)* (sumy - app_state.depthh / 2);
+						if (dis < mind)
+						{
 							cnt = contours[i];
+							ind = i;
+							mind = dis;
+						}
+
+						//if (contours[i].size() > cnt.size())
+						//	cnt = contours[i];
 					}
+
 
 					auto epsilon = 0.1 * arcLength(cnt, true);
 					appros.clear();
 					appros.resize(1);
-					 approxPolyDP(cnt, appros[0], epsilon, true);
+					approxPolyDP(cnt, appros[0], epsilon, true);
+					//		 convexHull(cnt, appros[0],false,true);
 
-					 drawContours(canny_output, appros, 0, Scalar(200));
 
-					 std::cout << appros[0].size() << std::endl;
 
-					 Point2f var[4];
+					
 
-					 if (appros[0].size() == 4)
-					 {
-						 for (int i = 0; i < 4; i++)
-						 {
-							 var[i].x = appros[0][i].x;
-							 var[i].y = appros[0][i].y;
+				
+				//	 drawContours(canny_output, appros, 0, Scalar(200),5);
+					if (appros[0].size() == 4)
+					{
 
-						 }
-						 app_state.update(var);
+					int corner1 = -1;
+					int corner2 = -1;
+					int corner3 = -1;
+					int corner4 = -1;
+
+					bool bnice = true;
+					for (int i = 0; i < 4; i++)
+					{
+						if (appros[0][i].x < 0)
+						{
+							appros[0][i].x = 0;
+							bnice = false;
+
+						}
+
+
+						if (appros[0][i].x >= app_state.depthw)
+						{
+							appros[0][i].x = app_state.depthw - 1;
+							bnice = false;
+						}
+
+						if (appros[0][i].y < 0)
+						{
+							appros[0][i].y = 0;
+							bnice = false;
+						}
+
+						if (appros[0][i].y >= app_state.depthh)
+						{
+							appros[0][i].y = app_state.depthh - 1;
+							bnice = false;
+						}
+					}
+
+
+
+
+					for (int k = 0; k < 4; k++)
+					{
+						float d1 = appros[0][k].x * appros[0][k].x + appros[0][k].y * appros[0][k].y;
+						float d2 = appros[0][k].x * appros[0][k].x + (app_state.depthh - appros[0][k].y) * (app_state.depthh - appros[0][k].y);
+						float d3 = (app_state.depthw - appros[0][k].x) * (app_state.depthw - appros[0][k].x) + appros[0][k].y * appros[0][k].y;
+						float d4 = (app_state.depthw - appros[0][k].x) * (app_state.depthw - appros[0][k].x) + (app_state.depthh - appros[0][k].y) * (app_state.depthh - appros[0][k].y);
+
+						if (d1 < d2 && d1 < d3 && d1 < d4)
+						{
+							corner1 = k;
+						}
+						if (d2 < d1 && d2 < d3 && d2 < d4)
+						{
+							corner2 = k;
+						}
+						if (d3 < d2 && d3 < d1 && d3 < d4)
+						{
+							corner4 = k;
+						}
+						if (d4 < d2 && d4 < d3 && d4 < d1)
+						{
+							corner3 = k;
+						}
+
+					}
+					if (corner1 == corner2 || corner1 == corner3 || corner1 == corner4 || corner2 == corner3 ||
+						corner2 == corner4 || corner3 == corner4 || corner1 == -1 || corner2 == -1 ||
+						corner3 == -1 || corner4 == -1)
+						bnice = false;
+
+
+					if (bnice)
+					{
+
+						Point var[4],diff[4];
+
+						
+						
+							var[0].x = appros[0][corner1].x;
+							var[0].y = appros[0][corner1].y;
+
+							var[1].x = appros[0][corner2].x;
+							var[1].y = appros[0][corner2].y;
+
+							var[2].x = appros[0][corner3].x;
+							var[2].y = appros[0][corner3].y;
+
+							var[3].x = appros[0][corner4].x;
+							var[3].y = appros[0][corner4].y;
+
+
+							float mdis[4];
+							int	ind[4];
+							for (int k = 0; k < 4; k++)
+							{
+								mdis[k] = FLT_MAX;
+							}
+							for (int i = 0; i < cnt.size(); i++)
+							{
+								for (int k = 0; k < 4; k++)
+								{
+									diff[k] = var[k] - cnt[i];
+									float lens = diff[k].dot(diff[k]);
+									if (lens < mdis[k])
+									{
+										mdis[k] = lens;
+										ind[k] = i;
+									}
+
+								}
+
+							}
+
+							/*std::vector<Vec4i> lines;
+			HoughLinesP(canny_output, lines, 1, CV_PI / 180, 50, 50, 10);
+			for (size_t i = 0; i < lines.size(); i++)
+			{
+				Vec4i l = lines[i];
+				line(canny_output, Point(l[0], l[1]), Point(l[2], l[3]), Scalar(128),5);
+			}*/
+							
+							cv::Vec4f line_para[4];
+							for (int k = 0; k < 4; k++)
+							{
+
+								std::vector<Point> pointset;
+								pointset.clear();
+								int nbeg = ind[k];
+								int nend = ind[(k + 1)%4];
+								int ncount = nend - nbeg+1;
+								if (ncount < 0)
+								{
+									ncount = nend + cnt.size() - nbeg+1;
+								}
+								int index = nbeg;
+								for (int i = 0; i < ncount; i++)
+								{
+									
+									pointset.push_back(cnt[index]);
+									index = (index + 1) % cnt.size();
+								}
+
+
+								cv::fitLine(pointset, line_para[k], cv::DIST_L2, 0, 1e-2, 1e-2);
+							//	line(canny_output, Point(line_para[k][0], line_para[k][1]),
+							//		Point(line_para[k][2], line_para[k][3]), Scalar(128), 5);
+							}
+
+
+
+
+
+
+							Point2f corner[4];
+							for (int i = 0; i < 4; i++)
+							{
+								bnice=app_state.intersection(line_para[i], line_para[(i + 3) % 4], corner[i]);
+								if (!bnice)
+									break;
+								//corner[i].x = var[i].x;
+								//corner[i].y = var[i].y;
+							}
+
+							if (bnice)
+							{
+								Mat checkM(Size(depth.get_width(), depth.get_height()), CV_8UC1);
+
+								Point root[1][4];
+								for (int i = 0; i < 4; i++)
+								{
+									root[0][i] = corner[i];
+								}
+								const Point* ppt[1] = { root[0] };
+								int npt[] = { 4 };
+								polylines(checkM, ppt, npt, 1, 1, Scalar(100), 100, 8, 0);
+								fillPoly(checkM, ppt, npt, 1, Scalar(200));
+								polylines(checkM, ppt, npt, 1, 1, Scalar(0), 10, 8, 0);
+
+								imshow("debug", checkM);
+
+								app_state.updatePlane(depth, checkM);
+								app_state.update(corner);
+								if (app_state.conerPoints.size() > 0)
+								{
+									prepare3D(app_state.conerPoints, app_state.finalDepth);
+								}
+							}
+					}
 					 }
 					 /*else
 					 {
@@ -412,12 +695,13 @@ int main(int argc, char * argv[]) try
 
 				}
 
-				imshow("debug", canny_output);
+				//imshow("debug", canny_output);
 
 			}//has baseD
 			else
-			{
-				app_state.reset();
+			{	
+				if (app_state.bdo)
+				app_state.reset(false);
 			}
         }
     }
@@ -441,7 +725,7 @@ catch (const std::exception& e)
 
 
 // Implement drag&drop behaviour for the buttons:
-void register_glfw_callbacks(window& app, state& app_state)
+void myregister_glfw_callbacks(window& app, state& app_state)
 {
     app.on_left_mouse = [&](bool pressed)
     {

@@ -147,7 +147,7 @@ inline void draw_text(int x, int y, const char * text)
     glDisableClientState(GL_VERTEX_ARRAY);
 }
 
-void set_viewport(const rect& r)
+inline void set_viewport(const rect& r)
 {
     glViewport( (int)r.x, (int)r.y, (int)r.w, (int)r.h);
     glLoadIdentity();

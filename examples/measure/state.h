@@ -16,6 +16,11 @@
 #include "depth-metrics.h"
 
  
+void intersectLineWithPlane3D(const float* q,
+	const float* v,
+	const float* w,
+	float* p,
+	float& depth);
 
 
 
@@ -32,12 +37,12 @@ using pixel = std::pair<int, int>;
 	{}
 
 	// Move from [0,1] space to pixel space of specific frame
-	pixel get_pixel(depth_frame frm) const
+	/*pixel get_pixel(depth_frame frm) const
 	{
 		int px = x * frm.get_width();
 		int py = y * frm.get_height();
 		return{ px, py };
-	}
+	}*/
 
 	void render(const window& app)
 	{
@@ -85,7 +90,14 @@ using pixel = std::pair<int, int>;
 class state
 {
 public:
+	bool                    bdo = true;
+	
+	float real = 0.0012;
+	std::vector<cv::Point2f>  conerPoints;
+	float  finalDepth;
 
+
+	rs2::region_of_interest roi{};
 	bool mouse_down = false;
 	toggle ruler_start;
 	toggle ruler_end;
@@ -96,6 +108,8 @@ public:
 	float dto;
 	float dbottomS;
 	float dbottomE;
+	float3 bpos[4];
+
 
 	int depthw = 640;
 	int depthh = 480;
@@ -103,8 +117,11 @@ public:
 	uchar* buf = NULL;
 	float baseD = -1;
 	plane basep;
+	plane pinside;
+	plane poutside;
 	std::vector<float> baselist;
 	float* dbuf =NULL;
+	float* mbuf = NULL;
 	snapshot_metrics        _latest_metrics;
 	float                   _depth_scale_units;
 	std::mutex      _m;
@@ -112,9 +129,9 @@ public:
 	float best = FLT_MAX;
 	float3 pos[5][4];
 	int    ipos = 0;
-	void reset()
+	void reset( bool begin )
 	{
-		if (best < FLT_MAX)
+		if (begin || best < FLT_MAX)
 		{
 			for (int i = 0; i < 5; i++)
 			{
@@ -131,174 +148,204 @@ public:
 			ruler_bottomS = { 0.45f, 0.6f };
 			ruler_bottomE = { 0.55f, 0.6f };
 		}
+
+		if (begin)
+		{
+			baseD = -1;
+			baselist.clear();
+
+		}
+
 	}
 
-
-	float3 to3d(pixel u ,float & dep)
+	float3 to3dbyPlane(pixel u,  plane pp )
 	{
 		float upixel[2]; // From pixel
 		float upoint[3]; // From point (in 3D)
-		float bpoint[3]; // From point (in 3D)
-		upixel[0] = u.first;
-		upixel[1] = u.second;
-		float udis = dbuf[u.second * depthw + u.first];
-		float bdis = udis = udis * _depth_scale_units;
-		udis = bdis * _latest_metrics.distance / baseD;
-		rs2_deproject_pixel_to_point(upoint, &intr, upixel, udis);
-		rs2_deproject_pixel_to_point(bpoint, &intr, upixel, bdis);
-		plane p = _latest_metrics.p;
+		//float dis = static_cast<float>(-pp.d * 1000);
 		
-		// Find distance from point to the reconstructed plane
-		auto dist2plane = p.a * upoint[0] + p.b * upoint[1] + p.c * upoint[2] + p.d;
-		auto dist2bplane = basep.a * bpoint[0] + basep.b * bpoint[1] + basep.c * bpoint[2] + basep.d;
-		//		// Project the point to plane in 3D and find distance to the intersection point
-		float3 upointi = { float(upoint[0] - dist2plane * p.a),
-										float(upoint[1] - dist2plane * p.b),
-										float(upoint[2] - dist2plane * p.c) };
-
-		float3 bpointi = { float(bpoint[0] - dist2bplane * basep.a),
-										float(bpoint[1] - dist2bplane * basep.b),
-										float(bpoint[2] - dist2bplane * basep.c) };
-
-		float3 dis = bpointi - upointi;
-		dep = dis.length();
-
-
-
-		return upointi;
-
-	}
-
-	float dist_3d(pixel u, pixel v)
-	{
-		if (baseD < 0 || buf == NULL)
-			return 0;
-
-
-		float upixel[2]; // From pixel
-		float upoint[3]; // From point (in 3D)
-
-		float vpixel[2]; // To pixel
-		float vpoint[3]; // To point (in 3D)
-
-		// Copy pixels into the arrays (to match rsutil signatures)
 		upixel[0] = u.first;
 		upixel[1] = u.second;
-		vpixel[0] = v.first;
-		vpixel[1] = v.second;
+		/*float udis = dbuf[u.second * depthw + u.first];
+		udis = udis * _depth_scale_units;
+		udis = udis * dis/ baseD;*/
+		rs2_deproject_pixel_to_point(upoint, &intr, upixel, 1);
+
+		
 
 
-		float udis = dbuf[u.second * depthw + u.first];
-		float vdis = dbuf[v.second * depthw + v.first];
-
-		udis = udis * _depth_scale_units * _latest_metrics.distance / baseD;
-		vdis = vdis * _depth_scale_units * _latest_metrics.distance / baseD;
-		//rs2_intrinsics intr = frame.get_profile().as<rs2::video_stream_profile>().get_intrinsics(); // Calibration data
-		rs2_deproject_pixel_to_point(upoint, &intr, upixel, udis);
-		rs2_deproject_pixel_to_point(vpoint, &intr, vpixel, vdis);
-
-		plane p = _latest_metrics.p;
 		// Find distance from point to the reconstructed plane
-		auto dist2plane = p.a * upoint[0] + p.b * upoint[1] + p.c * upoint[2] + p.d;
-		//		// Project the point to plane in 3D and find distance to the intersection point
-		float3 upointi = { float(upoint[0] - dist2plane * p.a),
-										float(upoint[1] - dist2plane * p.b),
-										float(upoint[2] - dist2plane * p.c) };
+		//auto dist2plane = pp.a * upoint[0] + pp.b * upoint[1] + pp.c * upoint[2] + pp.d;
+		float3 ray={ upoint[0],upoint[1],upoint[2] };
 
-		auto dist2plane2 = p.a * vpoint[0] + p.b * vpoint[1] + p.c * vpoint[2] + p.d;
-		//		// Project the point to plane in 3D and find distance to the intersection point
-		float3 vpointi = { float(vpoint[0] - dist2plane2 * p.a),
-										float(vpoint[1] - dist2plane2 * p.b),
-										float(vpoint[2] - dist2plane2 * p.c) };
+		//if (abs(dist2plane) < 0.00001)
+		//	return ray;
+
+		//float3 normal={pp.a,pp.b,pp.c };
+		ray=ray.normalize();
 
 
-		return sqrt(pow(upointi.x - vpointi.x, 2) +
-			pow(upointi.y - vpointi.y, 2) +
-			pow(upointi.z - vpointi.z, 2));
+		float v[3];
+		v[0] = ray.x;
+		v[1] = ray.y;
+		v[2] = ray.z;
+		float q[3];
+		q[0] = 0;
+		q[1] = 0;
+		q[2] = 0;
+		float p[3];
+		float plane[4];
+		plane[0] = pp.a;
+		plane[1] = pp.b;
+		plane[2] = pp.c;
+		plane[3] = pp.d;
+		float depth;
+		intersectLineWithPlane3D(q, v, plane, p, depth);
+		float3 ret;
+		ret.x = -p[0];
+		ret.y = -p[1];
+		ret.z = -p[2];
+
+		return ret;
+
+
+//		normal = normal.normalize();
+//		float costheta = ray * normal;
+//		if (abs(costheta) < 0.00001)
+//		{
+//			ray = float3{ upoint[0],upoint[1],upoint[2] }+normal * dist2plane;
+//			return ray;
+//		}
+//
+//		float raydis = dist2plane / costheta;
+//		ray = ray / ray.z;
+//		ray = ray * (udis - raydis);
+//
+//		//		// Project the point to plane in 3D and find distance to the intersection point
+//		/*float3 upointi = { float(upoint[0] - dist2plane * p.a),
+//										float(upoint[1] - dist2plane * p.b),
+//										float(upoint[2] - dist2plane * p.c) };
+//*/
+//		return ray;
+//
+
 	}
+
+
+
+	//float3 to3d(pixel u ,float & dep)
+	//{
+	//	float upixel[2]; // From pixel
+	//	float upoint[3]; // From point (in 3D)
+	//	float bpoint[3]; // From point (in 3D)
+	//	upixel[0] = u.first;
+	//	upixel[1] = u.second;
+	//	float udis = dbuf[u.second * depthw + u.first];
+	//	float bdis = udis = udis * _depth_scale_units;
+	//	udis = bdis * _latest_metrics.distance / baseD;
+	//	rs2_deproject_pixel_to_point(upoint, &intr, upixel, udis);
+	//	rs2_deproject_pixel_to_point(bpoint, &intr, upixel, bdis);
+	//	plane p = _latest_metrics.p;
+	//	
+	//	// Find distance from point to the reconstructed plane
+	//	auto dist2plane = p.a * upoint[0] + p.b * upoint[1] + p.c * upoint[2] + p.d;
+	//	auto dist2bplane = basep.a * bpoint[0] + basep.b * bpoint[1] + basep.c * bpoint[2] + basep.d;
+	//	//		// Project the point to plane in 3D and find distance to the intersection point
+	//	float3 upointi = { float(upoint[0] - dist2plane * p.a),
+	//									float(upoint[1] - dist2plane * p.b),
+	//									float(upoint[2] - dist2plane * p.c) };
+	//	float3 bpointi = { float(bpoint[0] - dist2bplane * basep.a),
+	//									float(bpoint[1] - dist2bplane * basep.b),
+	//									float(bpoint[2] - dist2bplane * basep.c) };
+	//	float3 dis = bpointi - upointi;
+	//	dep = dis.length();
+	//	return upointi;
+	//}
+
+	//float dist_3d(pixel u, pixel v)
+	//{
+	//	if (baseD < 0 || buf == NULL)
+	//		return 0;
+	//	float upixel[2]; // From pixel
+	//	float upoint[3]; // From point (in 3D)
+	//	float vpixel[2]; // To pixel
+	//	float vpoint[3]; // To point (in 3D)
+	//	// Copy pixels into the arrays (to match rsutil signatures)
+	//	upixel[0] = u.first;
+	//	upixel[1] = u.second;
+	//	vpixel[0] = v.first;
+	//	vpixel[1] = v.second;
+	//	float udis = dbuf[u.second * depthw + u.first];
+	//	float vdis = dbuf[v.second * depthw + v.first];
+	//	udis = udis * _depth_scale_units * _latest_metrics.distance / baseD;
+	//	vdis = vdis * _depth_scale_units * _latest_metrics.distance / baseD;
+	//	//rs2_intrinsics intr = frame.get_profile().as<rs2::video_stream_profile>().get_intrinsics(); // Calibration data
+	//	rs2_deproject_pixel_to_point(upoint, &intr, upixel, udis);
+	//	rs2_deproject_pixel_to_point(vpoint, &intr, vpixel, vdis);
+	//	plane p = _latest_metrics.p;
+	//	// Find distance from point to the reconstructed plane
+	//	auto dist2plane = p.a * upoint[0] + p.b * upoint[1] + p.c * upoint[2] + p.d;
+	//	//		// Project the point to plane in 3D and find distance to the intersection point
+	//	float3 upointi = { float(upoint[0] - dist2plane * p.a),
+	//									float(upoint[1] - dist2plane * p.b),
+	//									float(upoint[2] - dist2plane * p.c) };
+	//	auto dist2plane2 = p.a * vpoint[0] + p.b * vpoint[1] + p.c * vpoint[2] + p.d;
+	//	//		// Project the point to plane in 3D and find distance to the intersection point
+	//	float3 vpointi = { float(vpoint[0] - dist2plane2 * p.a),
+	//									float(vpoint[1] - dist2plane2 * p.b),
+	//									float(vpoint[2] - dist2plane2 * p.c) }
+	//	return sqrt(pow(upointi.x - vpointi.x, 2) +
+	//		pow(upointi.y - vpointi.y, 2) +
+	//		pow(upointi.z - vpointi.z, 2));
+	//}
+
 
 
 	void update(cv::Point2f* var) {
-		int corner1 = -1;
-		int corner2 = -1;
-		int corner3 = -1;
-		int corner4 = -1;
-
-		bool bnice = true;
-		for (int i = 0; i < 4; i++)
-		{
-			if (var[i].x < 0)
-			{
-				var[i].x = 0;
-				bnice = false;
-
-			}
-
-
-			if (var[i].x >= depthw)
-			{
-				var[i].x = depthw - 1;
-				bnice = false;
-			}
-
-			if (var[i].y < 0)
-			{
-				var[i].y = 0;
-				bnice = false;
-			}
-
-			if (var[i].y >= depthh)
-			{
-				var[i].y = depthh - 1;
-				bnice = false;
-			}
-		}
 		
-		
-		
-
-		for (int k = 0; k < 4; k++)
-		{
-			float d1 = var[k].x * var[k].x + var[k].y * var[k].y;
-			float d2 = var[k].x * var[k].x + (depthh - var[k].y) * (depthh - var[k].y);
-			float d3 = (depthw - var[k].x) * (depthw - var[k].x) + var[k].y * var[k].y;
-			float d4 = (depthw - var[k].x) * (depthw - var[k].x) + (depthh - var[k].y) * (depthh - var[k].y);
-
-			if (d1 < d2 && d1 < d3 && d1 < d4)
-			{
-				corner1 = k;
-			}
-			if (d2 < d1 && d2 < d3 && d2 < d4)
-			{
-				corner2 = k;
-			}
-			if (d3 < d2 && d3 < d1 && d3 < d4)
-			{
-				corner3 = k;
-			}
-			if (d4 < d2 && d4 < d3 && d4 < d1)
-			{
-				corner4 = k;
-			}
-
-		}
-		if (corner1 == corner2 || corner1 == corner3 || corner1 == corner4 || corner2 == corner3 ||
-			corner2 == corner4 || corner3 == corner4 || corner1 == -1 || corner2 == -1 ||
-			corner3 ==-1 || corner4== -1)
-			bnice = false;
-
-		if (bnice)
+		//if (bnice)
 		{
 			
+		
+			
+			auto from_pixel = pixel{ var[0].x , var[0].y };
+			auto to_pixel = pixel{ var[1].x , var[1].y };
+			auto bottomE_pixel = pixel{ var[2].x , var[2].y };
+			auto bottomS_pixel = pixel{ var[3].x , var[3].y };
 
-			auto from_pixel = pixel{ var[corner1].x , var[corner1].y };
-			auto to_pixel = pixel{ var[corner2].x , var[corner2].y };
-			auto bottomE_pixel = pixel{ var[corner4].x , var[corner4].y };
-			auto bottomS_pixel = pixel{ var[corner3].x , var[corner3].y };
-			auto from = to3d( from_pixel, dfrom);
-			auto to = to3d(to_pixel, dto);
-			auto bottomE = to3d(bottomE_pixel, dbottomE);
-			auto bottomS = to3d(bottomS_pixel, dbottomS);
+			//float dfrom2, dto2, dbottomE2, dbottomS2;
+
+			//auto from2 = to3d( from_pixel, dfrom2);
+			//auto test0 = from2.length();
+			//auto to2 = to3d(to_pixel, dto2);
+			//auto bottomE2 = to3d(bottomE_pixel, dbottomE2);
+			//auto bottomS2 = to3d(bottomS_pixel, dbottomS2);
+
+			auto from = to3dbyPlane(from_pixel, pinside);
+			//auto test1 = from.length();
+			auto to= to3dbyPlane(to_pixel, pinside);
+			auto bottomE = to3dbyPlane(bottomE_pixel, pinside);
+			auto bottomS = to3dbyPlane(bottomS_pixel, pinside);
+			//auto test2 = from.x * _latest_metrics.p.a + from.y * _latest_metrics.p.b + from.z * _latest_metrics.p.c + _latest_metrics.p.d;
+
+			dfrom = abs(from.x* poutside.a +from.y* poutside.b+from.z* poutside.c + poutside.d);
+			dto =abs( to.x * poutside.a + to.y * poutside.b + to.z * poutside.c + poutside.d);
+			dbottomE = abs(bottomE.x * poutside.a + bottomE.y * poutside.b + bottomE.z * poutside.c + poutside.d);
+			dbottomS =abs( bottomS.x * poutside.a + bottomS.y * poutside.b + bottomS.z * poutside.c + poutside.d);
+
+
+
+			float mindis = dfrom;
+			if (dto < mindis)
+				mindis = dto;
+			if (dbottomE < mindis)
+				mindis = dbottomE;
+
+			if (dbottomS < mindis)
+				mindis = dbottomS;
+
+			
+
 
 
 			pos[ipos][0] = from;
@@ -316,13 +363,54 @@ public:
 
 			if (cost < best)
 			{
-				ruler_start = toggle(var[corner1].x / depthw, var[corner1].y / depthh);
-				ruler_end = toggle(var[corner2].x / depthw, var[corner2].y / depthh);
-				ruler_bottomE = toggle(var[corner4].x / depthw, var[corner4].y / depthh);
-				ruler_bottomS = toggle(var[corner3].x / depthw, var[corner3].y / depthh);
+
+				conerPoints.clear();
+				for (int i = 0; i < 4; i++)
+				{
+					conerPoints.push_back(var[i]);
+				}
+
+				finalDepth = (mindis * 1000 + baseD - _latest_metrics.distance)/2;
+
+				ruler_start = toggle(var[0].x / depthw, var[0].y / depthh);
+				ruler_end = toggle(var[1].x / depthw, var[1].y / depthh);
+				ruler_bottomE = toggle(var[2].x / depthw, var[2].y / depthh);
+				ruler_bottomS = toggle(var[3].x / depthw, var[3].y / depthh);
 				best = cost;
+
+				bpos[0] = from;
+				bpos[1] = to;
+				bpos[2] = bottomE;
+				bpos[3] = bottomS;
+
 			}
 		}
+	}
+
+	// Finds the intersection of two lines, or returns false.
+// The lines are defined by (o1, p1) and (o2, p2).
+	bool intersection(cv::Vec4f p1, cv::Vec4f p2,
+		cv::Point2f& r)
+	{
+		cv::Point2f x,d1,d2,o1;
+			x.x= p2[2] - p1[2];
+			x.y = p2[3] - p1[3];
+			d1.x = p1[0];
+			d1.y = p1[1];
+			d2.x = p2[0];
+			d2.y = p2[1];
+			o1.x = p1[2];
+			o1.y = p1[3];
+
+
+		
+		float cross = d1.x * d2.y - d1.y * d2.x;
+		if (abs(cross) < /*EPS*/1e-8)
+			return false;
+
+		double t1 = (x.x * d2.y - x.y * d2.x) / cross;
+		r = o1 + d1 * t1;
+		return true;
 	}
 
 	float estimate(float3 from, float3 to, float3  bottomE, float3 bottomS)
@@ -431,19 +519,27 @@ public:
 	}
 
 	boolean render_simple_distance(
-		 state& s,
+		state& s,
 		const window& app)
 	{
-		boolean ret=false;
+		boolean ret = false;
+		float x = 15;
+		float y = 15;
 
 
-		if (s.check())
+		if (s.bdo && s.check())
 		{
-			reset();
+			reset(false);
 			return false;
 		}
 
 		pixel center, h, bottom, bsh;
+		glColor4f(1.f, 0.0f, 0.0f, 0.2f);
+		draw_line(roi.min_x, roi.max_y, roi.min_x, roi.min_y, 3);
+		draw_line(roi.min_x, roi.min_y, roi.max_x, roi.min_y, 3);
+		draw_line(roi.max_x, roi.min_y, roi.max_x, roi.max_y, 3);
+		draw_line(roi.max_x, roi.max_y, roi.min_x, roi.max_y, 3);
+
 
 		glColor4f(0.f, 0.0f, 0.0f, 0.2f);
 		draw_line(s.ruler_start.x * app.width(),
@@ -509,11 +605,22 @@ public:
 			s.ruler_bottomS.y * app.height(), 3);
 
 
+		if (baseD > 0 && best < FLT_MAX){
 
 		auto from_pixel = pixel{ ruler_start.x * depthw, ruler_start.y * depthh };
 		auto to_pixel = pixel{ ruler_end.x * depthw, ruler_end.y * depthh };
 		auto be_pixel = pixel{ ruler_bottomE.x * depthw, ruler_bottomE.y * depthh };
 		auto bs_pixel = pixel{ ruler_bottomS.x * depthw, ruler_bottomS.y * depthh };
+
+		// auto from = to3dbyPlane(from_pixel, this->_latest_metrics.p);
+		// auto to = to3dbyPlane(to_pixel, this->_latest_metrics.p);
+		// auto bottomE = to3dbyPlane(be_pixel, this->_latest_metrics.p);
+		// auto bottomS = to3dbyPlane(bs_pixel, this->_latest_metrics.p);
+
+		auto from =bpos[0] ;
+		auto to=bpos[1] ;
+		auto bottomE= bpos[2];
+		auto bottomS= bpos[3];
 
 		std::stringstream ds, dh, db, de;
 		ds << int(dfrom * 1000) << " mm";
@@ -521,16 +628,16 @@ public:
 		db << int(dbottomS * 1000) << " mm";
 		de << int(dbottomE * 1000) << " mm";
 
-		draw_text(from_pixel.first +15, from_pixel.second+15, ds.str().c_str());
+		draw_text(from_pixel.first + 15, from_pixel.second + 15, ds.str().c_str());
 		draw_text(to_pixel.first + 15, to_pixel.second + 15, dh.str().c_str());
 		draw_text(be_pixel.first + 15, be_pixel.second + 15, de.str().c_str());
 		draw_text(bs_pixel.first + 15, bs_pixel.second + 15, db.str().c_str());
 
 
-		float air_dist = dist_3d( from_pixel, to_pixel);
-		float h_dist = dist_3d( be_pixel, to_pixel);
-		float b_dist = dist_3d( be_pixel, bs_pixel);
-		float eh_dist = dist_3d( from_pixel, bs_pixel);
+		float air_dist = (bpos[0] - bpos[1]).length();//dist_3d( from_pixel, to_pixel);
+		float h_dist = (bpos[2] - bpos[1]).length();//dist_3d( be_pixel, to_pixel);
+		float b_dist = (bpos[3] - bpos[2]).length(); //dist_3d( be_pixel, bs_pixel);
+		float eh_dist = (bpos[0] - bpos[3]).length();//dist_3d( from_pixel, bs_pixel);
 
 
 		center.first = (from_pixel.first + to_pixel.first) / 2;
@@ -560,8 +667,8 @@ public:
 		auto strb = sb.str();
 		auto stre = se.str();
 
-		auto x = (float(center.first) / depthw) * app.width() + 15;
-		auto y = (float(center.second) / depthh) * app.height() + 15;
+		 x = (float(center.first) / depthw) * app.width() + 15;
+		 y = (float(center.second) / depthh) * app.height() + 15;
 
 		auto xh = (float(h.first) / depthw) * app.width() + 15;
 		auto yh = (float(h.second) / depthh) * app.height() + 15;
@@ -621,7 +728,7 @@ public:
 		draw_text(xh, yh, strh.c_str());
 		draw_text(xb, yb, strb.c_str());
 		draw_text(xe, ye, stre.c_str());
-
+	}
 
 		if (baseD < 0)
 		{
@@ -733,43 +840,6 @@ public:
 			return result;
 		}
 
-		//找出error 大的點
-		for (int y = 0; y < h; y++)
-			for (int x = 0; x < w; x++)
-			{
-
-				//if (x >= roi.min_x && x <= roi.max_x && y >=roi.min_y && y <= roi.max_y)
-				//	continue;
-
-				auto depth_raw = pixels[y * w + x];
-
-				if (buf != NULL)
-				{
-					auto dbuf_raw = dbuf[y * w + x];
-
-					if (depth_raw && dbuf_raw)
-					{
-						auto v = 255 - abs(depth_raw - dbuf_raw) * 3;
-						if (v < 0)
-							v = 0;
-
-						buf[y * w + x] = v;
-
-
-					}
-					else
-						buf[y * w + x] = 0;
-
-
-
-				}
-
-
-
-			}
-
-
-
 		// Calculate intersection of the plane fit with a ray along the center of ROI
 		// that by design coincides with the center of the frame
 		float3 plane_fit_pivot = approximate_intersection(p, intrin, intrin->width / 2.f, intrin->height / 2.f);
@@ -788,7 +858,138 @@ public:
 		result.angle = static_cast<float>(std::acos(std::abs(p.c)) / PI * 180.);
 
 
+
+		//找出error 大的點
+		if (buf != NULL)
+		{
+			for (int y = 0; y < h; y++)
+				for (int x = 0; x < w; x++)
+				{
+
+					//if (x >= roi.min_x && x <= roi.max_x && y >=roi.min_y && y <= roi.max_y)
+					//	continue;
+
+					auto depth_raw = pixels[y * w + x];
+
+					if (depth_raw)
+					{
+
+						// units is float
+						float pixel[2] = { float(x), float(y) };
+						float point[3];
+						auto distance = depth_raw * units;
+
+						rs2_deproject_pixel_to_point(point, intrin, pixel, distance);
+						auto modify = mbuf[y * w + x];
+						auto dist2plane = p.a * point[0] + p.b * point[1] + p.c * point[2] + p.d-modify;
+						
+						auto dist2bplane = basep.a * point[0] + basep.b * point[1] + basep.c * point[2] + basep.d -modify;
+						auto dist =   abs(dist2bplane)- abs(dist2plane);
+						if (dist < 0)
+						{
+							
+
+							buf[y * w + x] = 0 ;
+
+						}
+						else
+						{
+							/*dist = dist * 10000;
+
+							if (dist > 255)
+								dist = 255;*/
+							buf[y * w + x] = 255;
+						}
+
+
+
+					}
+					else
+						buf[y * w + x] = 200;
+
+
+					/*if (buf != NULL)
+					{
+						auto dbuf_raw = dbuf[y * w + x];
+
+						if (depth_raw && dbuf_raw)
+						{
+							auto v = 255 - abs(depth_raw - dbuf_raw) * 3;
+							if (v < 0)
+								v = 0;
+
+							buf[y * w + x] = v;
+
+
+						}
+						else
+							buf[y * w + x] = 0;
+
+
+
+					}*/
+
+
+
+				}
+
+		}//buf != NULL
+
+
 		return result;
+	}
+
+
+
+	bool updatePlane(depth_frame& frame, cv::Mat& checkM)
+	{
+		std::vector<float3> inside_pixels;
+		std::vector<float3> outside_pixels;
+		auto pixels = (const uint16_t*)frame.get_data();
+		auto data = checkM.data;
+
+		//#pragma omp parallel for - TODO optimization envisaged
+		for (int y = 0; y < depthh; y++)
+			for (int x = 0; x < depthw; x++)
+			{
+				auto depth_raw = pixels[y * depthw + x];
+				auto check = data[y * depthw + x];
+
+				if (depth_raw && data && check > 0)
+				{
+					int value = (int) check;
+
+					// units is float
+					float pixel[2] = { float(x), float(y) };
+					float point[3];
+					auto distance = depth_raw * _depth_scale_units;
+
+					rs2_deproject_pixel_to_point(point, &intr, pixel, distance);
+
+					std::lock_guard<std::mutex> lock(_m);
+					
+					if (value == 100) //outside
+					{
+						outside_pixels.push_back({ point[0], point[1], point[2] });
+					}
+					else if (value == 200)//inside
+					{
+						inside_pixels.push_back({ point[0], point[1], point[2] });
+					}
+				}
+			}
+
+
+
+		if (inside_pixels.size() < 3 || outside_pixels.size() < 3) { // Not enough pixels in RoI to fit a plane
+			return false;
+		}
+
+		 pinside = plane_from_points(inside_pixels);
+		 poutside = plane_from_points(outside_pixels);
+
+		return true;
+
 	}
 
 
@@ -798,12 +999,12 @@ public:
 		if (dbuf == NULL && buf == NULL)
 		{
 
-			float upixel[2];
 			auto pixels = (const uint16_t*)frame.get_data();
 			depthw = frame.get_width();
 			depthh = frame.get_height();
 
 			dbuf = new float[depthw * depthh];
+			mbuf = new float[depthw * depthh];
 			buf = new uchar[depthw * depthh];
 			for (int x = 0; x < depthw; x++)
 				for (int y = 0; y < depthh; y++)
@@ -812,6 +1013,51 @@ public:
 
 				}
 		}
+		else
+		{
+
+			auto pixels = (const uint16_t*)frame.get_data();
+			for (int x = 0; x < depthw; x++)
+				for (int y = 0; y < depthh; y++)
+				{
+					dbuf[y * depthw + x] = pixels[y * depthw + x];
+
+				}
+
+
+		}
+
+		modifyBuffer(frame);
+	}
+
+	void modifyBuffer(const rs2::depth_frame& frame)
+	{
+		auto pixels = (const uint16_t*)frame.get_data();
+
+		for (int x = 0; x < depthw; x++)
+			for (int y = 0; y < depthh; y++)
+			{
+
+				auto depth_raw = pixels[y * depthw + x];
+				float dist2bplane=0;
+				if (depth_raw)
+				{
+
+					// units is float
+					float pixel[2] = { float(x), float(y) };
+					float point[3];
+					auto distance = depth_raw * _depth_scale_units;
+
+					rs2_deproject_pixel_to_point(point, &intr, pixel, distance);
+					
+					 dist2bplane = basep.a * point[0] + basep.b * point[1] + basep.c * point[2] + basep.d;
+				}
+
+				mbuf[y * depthw + x] = dist2bplane;
+
+
+
+			}
 
 	}
 
