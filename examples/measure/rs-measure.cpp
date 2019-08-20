@@ -36,7 +36,7 @@ using namespace rs2;
 using namespace cv;
 
 void prepare3D(std::vector<cv::Point2f> bookPoints, float book);
-void colorBound(const rs2::video_frame& frame, float dep );
+bool colorBound(const rs2::video_frame& frame, float dep, bool  );
 void drawIR(Mat src);
 void initFrame(const rs2::video_frame& frame);
 
@@ -219,14 +219,15 @@ int main(int argc, char * argv[]) try
 				if (RS2_STREAM_COLOR == stream_type)
 				{
 					//float pos[12];
-					if (bsave)
+					if (bsave )
 					{
 						/*std::vector<cv::Point3f> projectedPoints;
 						for (int k = 0; k < 4; k++)
 						{
 							projectedPoints.push_back(Point3f(app_state.bpos[k].x/ app_state.real, app_state.bpos[k].y/ app_state.real, app_state.bpos[k].z/ app_state.real));
 						}*/
-						colorBound(f, app_state.finalDepth);
+					app_state.bfinal=colorBound(f, app_state.finalDepth, app_state.bfinal );
+
 					}
 				}
 				if (stream_type == RS2_STREAM_INFRARED)
@@ -669,7 +670,7 @@ int main(int argc, char * argv[]) try
 
 								app_state.updatePlane(depth, checkM);
 								app_state.update(corner);
-								if (app_state.conerPoints.size() > 0)
+								if (app_state.conerPoints.size() > 0 && app_state.finalDepth > 0 )
 								{
 									prepare3D(app_state.conerPoints, app_state.finalDepth);
 								}

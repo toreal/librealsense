@@ -14,23 +14,23 @@
 #include <string>
 #include "calibrate.h"
 
+#include "stdafx.h"
+
+#include "GrabCutMF.h"
+
 int runcalib(int mode);
 
 
-using namespace cv;
+
 
 Mat dcameraMatrix, ddistCoeffs;
 std::vector<Mat> drvecs, dtvecs;
 Mat cameraMatrix, distCoeffs;
 std::vector<Mat> rvecs, tvecs;
-Size dimageSize;
-Size imageSize;
 
 bool binit = false;
 Mat finit;
 
-std::vector<cv::Point2f> projectedPoints;
-std::vector<cv::Point2f> dprojectedPoints;
 std::vector<cv::Point3f> prepared3DPoints;
 
 
@@ -168,7 +168,10 @@ void drawIR(Mat src)
 {
 
 
-	/*if (prepared3DPoints.size() > 0)
+	/*
+	
+	std::vector<cv::Point2f> dprojectedPoints;
+	if (prepared3DPoints.size() > 0)
 	{
 
 		dprojectedPoints.clear();
@@ -200,13 +203,113 @@ void initFrame(const rs2::video_frame& frame)
 	finit = colormat.clone();
 }
 
-void colorBound(const rs2::video_frame& frame, float dep)
+
+bool findCorner(Mat img, Mat mask, Point input, Point& output, int cornerType)
 {
+
+	Rect _rect(input.x - 50, input.y - 50, 100, 100);
+	Mat subimg,submask;
+	Mat backgroundModel = Mat(Size(65, 1), CV_64FC1);
+	Mat foregroundModel = Mat(Size(65, 1), CV_64FC1);
+	Rect rectangle(0, 0, 100, 100);
+
+	img(_rect).copyTo(subimg);
+	mask(_rect).copyTo(submask);
+
+	grabCut(subimg, submask, rectangle,
+		backgroundModel, foregroundModel,
+		1, GC_INIT_WITH_MASK);
+
+	Mat outputm = Mat::zeros(submask.rows, submask.cols, CV_8U);
+
+	//cv::compare(submask, cv::GC_PR_FGD, outputm, cv::CMP_EQ);
+	//cv::compare(submask, cv::GC_FGD, outputm, cv::CMP_EQ);
+
+
+	for (int i = 0; i < submask.rows; ++i) {
+		for (int j = 0; j < submask.cols; ++j) {
+			// choose pixels that are certainly or likely background
+			if (submask.at<uchar>(i, j) == GC_PR_FGD || submask.at<uchar>(i, j) == GC_FGD) {
+				outputm.at<uchar>(i, j) = 255;
+			}
+		}
+	}
+
+
+	std::vector<std::vector<cv::Point>> contours;
+	std::vector<std::vector<cv::Point>> appros;
+	std::vector<cv::Vec4i> hierarchy;
+	int thresh = 100;
+	Mat dst1, dst2, canny_output;
+
+	Canny(outputm, canny_output, thresh, thresh * 2, 3);
+
+
+	findContours(canny_output, contours, hierarchy, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE, Point(0, 0));
+	std::vector<cv::Point> cnt = contours[0];
+	//auto epsilon = 0.5 * arcLength(cnt, true);
+	//appros.clear();
+	//appros.resize(1);
+	//approxPolyDP(cnt, appros[0], epsilon, false);
+	//ApproxChains(cnt, appros[0], CHAIN_APPROX_SIMPLE );
+
+	//Point2f vtx[4];
+	vector<Point2f> vtx;
+	if (cnt.size() > 0)
+	{
+		//RotatedRect box = minAreaRect(cnt);
+		
+		minEnclosingTriangle(cnt, vtx);
+		//box.points(vtx);
+		for (int i = 0; i < 3; i++)
+			line(canny_output, vtx[i], vtx[(i + 1) % 3], Scalar(128), 1, LINE_AA);
+		
+	}
+	
+
+	
+
+	//if (vtx.size()> 0 && appros[0].size() > 0)
+	{
+		float dis = FLT_MAX;
+		for (int i = 0; i < 3; i++)
+		{
+			Point p =Point( vtx[i].x, vtx[i].y);
+			Point del = p - Point(50, 50);
+
+			float dd = del.dot(del);
+			if (dd < dis)
+			{
+				dis = dd;
+				output = p;
+			}
+
+			
+		}
+
+
+		circle(canny_output, output, 5, (250));
+		
+		imshow("grabCut", canny_output);
+		return true;
+	}
+
+	return false;
+
+}
+
+
+bool colorBound(const rs2::video_frame& frame, float dep, bool bfinal)
+{
+
+	std::vector<cv::Point2f> projectedPoints;
+	
+
 	int h = frame.get_height();
 	int w = frame.get_width();
 	//frame.get_profile().
 
-
+	bool bret = bfinal;
 
 
 
@@ -238,6 +341,9 @@ void colorBound(const rs2::video_frame& frame, float dep)
 
 		const std::string outputFileName = "c:\\james\\images\\d_camera_data.xml";
 		const std::string outputFileNamergb = "c:\\james\\images\\rgb_camera_data.xml";
+		Size dimageSize;
+		Size imageSize;
+
 
 		if (!readCameraParams(outputFileName, dimageSize, dcameraMatrix, ddistCoeffs, drvecs, dtvecs))
 		{
@@ -251,7 +357,7 @@ void colorBound(const rs2::video_frame& frame, float dep)
 		}
 
 	}
-	else
+	else if (dep > 0 )
 	{
 
 
@@ -290,7 +396,7 @@ void colorBound(const rs2::video_frame& frame, float dep)
 		try
 		{
 			int nsize = prepared3DPoints.size();
-			if (nsize > 0)
+			if (nsize ==4 && !bfinal)
 			{
 
 				//使用灰度图像进行角点检测	
@@ -302,16 +408,11 @@ void colorBound(const rs2::video_frame& frame, float dep)
 				cv::projectPoints(prepared3DPoints, rvecs[0], tvecs[0], cameraMatrix, distCoeffs, projectedPoints);
 
 
-
-				/*for (int k = 0; k < projectedPoints.size(); k++)
-				{
-
-					circle(colormat, projectedPoints.at(k), 5, Scalar(255, 0, 0));
-				}*/
-
-
 				Mat mf;
 				cvtColor(colormat, mf, cv::COLOR_BGRA2BGR);
+
+				
+				
 				Mat mask = Mat(Size(w,h), CV_8UC1, Scalar(GC_BGD));
 				Mat backgroundModel = Mat(Size(65, 1), CV_64FC1);
 				Mat foregroundModel = Mat(Size(65, 1), CV_64FC1);
@@ -322,7 +423,7 @@ void colorBound(const rs2::video_frame& frame, float dep)
 				int minx= w, maxx=0;
 				int miny=h, maxy=0;
 
-				for (int i = 0; i < 4; i++)
+				for (int i = 0; i < projectedPoints.size(); i++)
 				{
 					root[0][i] =Point( projectedPoints[i].x, projectedPoints[i].y);
 					if (projectedPoints[i].x < minx)
@@ -344,12 +445,49 @@ void colorBound(const rs2::video_frame& frame, float dep)
 				fillPoly(mask, ppt, npt, 1, Scalar(cv::GC_FGD));
 				polylines(mask, ppt, npt, 1, 1, Scalar(GC_PR_FGD), 30, 8, 0);
 				Rect rectangle = Rect(minx, miny, maxx- minx, maxy - miny);
-				grabCut(mf, mask, rectangle,					
-					backgroundModel, foregroundModel,
-					1, GC_INIT_WITH_MASK);
 
-				cv::compare(mask, cv::GC_PR_FGD, mask, cv::CMP_EQ);
-				fillPoly(mask, ppt, npt, 1, Scalar(255));
+				std::vector<cv::Point2f> outPoints;
+				for (int k = 0; k < projectedPoints.size(); k++)
+				{
+					Point out;
+					bool bfind=findCorner(mf,mask, projectedPoints.at(k), out , k );
+
+					if (bfind)
+					{
+						Point in = Point(projectedPoints.at(k).x, projectedPoints.at(k).y);
+						Point res = in + out - Point(50, 50);
+						outPoints.push_back(res);
+					}
+				}
+
+
+
+
+				/*Mat imMat3f;
+				double maxWeight = 2;
+				mf.convertTo(imMat3f, CV_32FC3, 1 / 255.0);
+				GrabCutMF  cutMF(imMat3f, mf, ".", 6, 10, 2, 20, 33, 3, 41);
+				cutMF.initialize(rectangle, mask, (float)maxWeight, true);
+				cutMF.refine();
+				Mat ret = cutMF.drawResult();*/
+
+				/*grabCut(mf, mask, rectangle,					
+					backgroundModel, foregroundModel,
+					1, GC_INIT_WITH_MASK);*/
+
+				//Mat output =Mat::zeros(mask.rows, mask.cols, CV_8U);
+
+				//for (int i = 0; i < mask.rows; ++i) {
+				//	for (int j = 0; j < mask.cols; ++j) {
+				//		// choose pixels that are certainly or likely background
+				//		if (mask.at<uchar>(i, j) == GC_PR_FGD || mask.at<uchar>(i, j) == GC_FGD) {
+				//			output.at<uchar>(i, j) = 255;
+				//		}
+				//	}
+				//}
+				//cv::compare(mask, cv::GC_PR_FGD, output, cv::CMP_EQ);
+				//cv::compare(mask, cv::GC_FGD, output, cv::CMP_EQ);
+				//fillPoly(mask, ppt, npt, 1, Scalar(255));
 				//result = result & 1 ;	
 				//cv::Mat foreground(mf.size() , CV_8UC3 ,		cv::Scalar(128 , 128 , 128)) ;	
 				//mf.copyTo(foreground , mask) ;
@@ -358,33 +496,51 @@ void colorBound(const rs2::video_frame& frame, float dep)
 				//imshow("grabCut", foreground);
 
 
-				std::vector<std::vector<cv::Point>> contours;
+				/*std::vector<std::vector<cv::Point>> contours;
 				std::vector<std::vector<cv::Point>> appros;
 				std::vector<cv::Vec4i> hierarchy;
 				int thresh = 100;
 				Mat dst1, dst2, canny_output;
 
-				Canny(mask, canny_output, thresh, thresh * 2, 3);
+				Canny(output, canny_output, thresh, thresh * 2, 3);
 
 				
 				findContours(canny_output, contours, hierarchy, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE, Point(0, 0));
-				std::vector<cv::Point> cnt = contours[0];
-				auto epsilon = 0.1 * arcLength(cnt, true);
-				appros.clear();
-				appros.resize(1);
-				approxPolyDP(cnt, appros[0], epsilon, true);
 
-				if (appros[0].size() == 4)
+				if (contours.size() > 0)
 				{
-					vector<Point2f>  inputs;
+					std::vector<cv::Point> cnt = contours[0];
+					auto epsilon = 0.1 * arcLength(cnt, true);
+					appros.clear();
+					appros.resize(1);
+					approxPolyDP(cnt, appros[0], epsilon, true);
+				}*/
+
+				for (int i = 0; i < projectedPoints.size(); i++)
+				{
+
+					Point p = Point(projectedPoints[i].x, projectedPoints[i].y);
+					Point pA = p + Point(-50, -50);
+					Point pB = p + Point(50, 50);
+					cv::rectangle(colormat, pA, pB,
+						cv::Scalar(128, 128, 0), 2, 8, 0);
+
+
+
+
+				}
+
+				if (outPoints.size() > 0)// && appros[0].size() == 4)
+				{
+					/*vector<Point2f>  inputs;
 
 					for (int i = 0; i < 4; i++)
 					{
 						inputs.push_back(Point2f(appros[0][i].x, appros[0][i].y));
 					}
-
+*/
 					prepared3DPoints.clear();
-					pose2d3d(dep, inputs, prepared3DPoints, rvecs, tvecs, cameraMatrix, distCoeffs);
+					pose2d3d(dep, outPoints, prepared3DPoints, rvecs, tvecs, cameraMatrix, distCoeffs);
 
 				}
 
@@ -420,6 +576,20 @@ void colorBound(const rs2::video_frame& frame, float dep)
 
 				}
 
+
+
+				
+
+
+				for (int i = 0; i < outPoints.size(); i++)
+				{
+
+					Point p = outPoints[i];
+					
+					circle(colormat, p, 10, cv::Scalar(0, 128, 128));
+						
+
+				}
 
 				projectedPoints.clear();
 
@@ -459,6 +629,12 @@ void colorBound(const rs2::video_frame& frame, float dep)
 				//	cv::circle(colormat, corners[i], 1, cv::Scalar(0, 0, 255), 2, 8, 0);
 				//}
 
+				for (int i = 0; i < projectedPoints.size(); i++)
+				{
+					cv::circle(colormat, projectedPoints[i], 1, cv::Scalar(128, 0, 255), 2, 8, 0);
+				}
+
+				
 
 				char retstr[10240];
 
@@ -467,6 +643,9 @@ void colorBound(const rs2::video_frame& frame, float dep)
 
 				putText(colormat, retstr, Point(280, 280), 0, 1, Scalar(0, 0, 0), 3);
 
+
+				if (nsize == 4)
+					bret = true;
 
 				imshow("mask", mask);
 				imshow("color", colormat);
@@ -480,5 +659,8 @@ void colorBound(const rs2::video_frame& frame, float dep)
 
 	}
 
-
+	return bret;
 }
+
+
+

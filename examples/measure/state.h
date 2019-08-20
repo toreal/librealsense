@@ -95,6 +95,7 @@ public:
 	float real = 0.0012;
 	std::vector<cv::Point2f>  conerPoints;
 	float  finalDepth;
+	bool bfinal=false;
 
 
 	rs2::region_of_interest roi{};
@@ -147,6 +148,8 @@ public:
 			ruler_end = { 0.55f, 0.4f };
 			ruler_bottomS = { 0.45f, 0.6f };
 			ruler_bottomE = { 0.55f, 0.6f };
+			finalDepth = -1;
+			bfinal = false;
 		}
 
 		if (begin)
