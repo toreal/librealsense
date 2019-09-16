@@ -38,7 +38,7 @@ using namespace cv;
 void prepare3D(std::vector<cv::Point2f> bookPoints, float book);
 bool colorBound(const rs2::video_frame& frame, float dep, bool  );
 void drawIR(Mat src);
-void initFrame(const rs2::video_frame& frame);
+void initFrame(const rs2::video_frame& frame,int);
 
 
 
@@ -61,6 +61,10 @@ int                     _ground_truth_mm;
 rs2::region_of_interest      _roi;
 float                   _roi_percentage=0.25f;
 bool                     bsave=false;
+bool                    bprepare = false;
+bool                    bupdate = false;
+
+int                      ninitmog = 20;
 //snapshot_metrics        _latest_metrics;
 //bool                    _active;
 
@@ -310,10 +314,15 @@ int main(int argc, char * argv[]) try
     rs2::frameset current_frameset;
 	namedWindow("debug", WINDOW_AUTOSIZE);
 	namedWindow("dist", WINDOW_AUTOSIZE);
+	namedWindow("colordist", WINDOW_AUTOSIZE);
 	namedWindow("src", WINDOW_AUTOSIZE);
 	namedWindow("color", WINDOW_AUTOSIZE);
 	namedWindow("mask", WINDOW_AUTOSIZE);
 	namedWindow("grabCut", WINDOW_AUTOSIZE);
+	namedWindow("img1", WINDOW_AUTOSIZE);
+	namedWindow("img2", WINDOW_AUTOSIZE);
+	namedWindow("img3", WINDOW_AUTOSIZE);
+	namedWindow("img4", WINDOW_AUTOSIZE);
 
 
 	std::vector<std::vector<cv::Point>> contours;
@@ -357,6 +366,7 @@ int main(int argc, char * argv[]) try
 		if (key & 0x8000) //'a'
 		{
 			initf = true;
+			ninitmog = 0;
 		}
 
 
@@ -368,9 +378,11 @@ int main(int argc, char * argv[]) try
             auto depth = current_frameset.get_depth_frame();
             auto color = current_frameset.get_color_frame();
 
-			if (initf)
+			if (initf || bprepare)//|| ninitmog < 20 )
 			{
-				initFrame(color);
+				initFrame(color, ninitmog);
+				bprepare = false;
+				ninitmog++;
 			}
 			
             auto colorized_depth = current_frameset.first(RS2_STREAM_DEPTH, RS2_FORMAT_RGB8);
@@ -404,7 +416,7 @@ int main(int argc, char * argv[]) try
 			
 			float bd = (app_state.baseD - app_state._latest_metrics.distance) * 3;
 
-			if (app_state.baseD > 0 && bd > 10 && app_state.bdo && app_state.buf != NULL)
+			if (app_state.baseD > 0 && bd > 5 && app_state.bdo && app_state.buf != NULL)
 			{			
 
 				// Creating OpenCV Matrix from a color image
@@ -670,6 +682,7 @@ int main(int argc, char * argv[]) try
 
 								app_state.updatePlane(depth, checkM);
 								app_state.update(corner);
+								bupdate = true;
 								if (app_state.conerPoints.size() > 0 && app_state.finalDepth > 0 )
 								{
 									prepare3D(app_state.conerPoints, app_state.finalDepth);
@@ -702,7 +715,15 @@ int main(int argc, char * argv[]) try
 			else
 			{	
 				if (app_state.bdo)
-				app_state.reset(false);
+				{
+					app_state.reset(false);
+					if (bupdate)
+					{
+						bprepare = true;
+						bupdate = false;
+					}
+
+				}
 			}
         }
     }

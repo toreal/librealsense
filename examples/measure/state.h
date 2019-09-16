@@ -366,6 +366,7 @@ public:
 
 			if (cost < best)
 			{
+				bfinal = false;
 
 				conerPoints.clear();
 				for (int i = 0; i < 4; i++)

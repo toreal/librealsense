@@ -10,13 +10,15 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/videoio.hpp>
 #include <opencv2/video.hpp>
-#include <opencv2/video/background_segm.hpp>
+//#include <opencv2/video/background_segm.hpp>
+#include <opencv2/bgsegm.hpp>
+
 #include <string>
 #include "calibrate.h"
-
+#include "fm_ocr_scanner.hpp"
 #include "stdafx.h"
 
-#include "GrabCutMF.h"
+//#include "GrabCutMF.h"
 
 int runcalib(int mode);
 
@@ -194,13 +196,62 @@ void drawIR(Mat src)
 */
 }
 
-void initFrame(const rs2::video_frame& frame)
+Ptr<BackgroundSubtractor> pBackSub;
+//Ptr<BackgroundSubtractor> pTrainedSub=NULL;
+
+bool                      binitmog = false;
+Mat                       mogMask;
+//Mat                       mogBMask;
+
+
+void initFrame(const rs2::video_frame& frame, int n)
 {
 	int h = frame.get_height();
 	int w = frame.get_width();
 
 	Mat colormat(Size(w, h), CV_8UC4, (void*)frame.get_data(), Mat::AUTO_STEP);
-	finit = colormat.clone();
+
+	cvtColor(colormat, finit, cv::COLOR_BGRA2BGR);
+	//cvtColor(finit, finit, cv::COLOR_BGR2HSV);
+	
+	
+	//finit = colormat.clone();
+	if (!binitmog)
+	{
+
+		
+		pBackSub = cv::bgsegm::createBackgroundSubtractorCNT(1,true,10,true);
+		binitmog = true;
+
+	}
+	/*else if (n == 0)
+	{
+		memcpy( pBackSub, pTrainedSub, sizeof(cv::bgsegm::BackgroundSubtractorCNT));
+		mogMask = mogBMask.clone();
+
+
+	}*/
+
+
+	//blur(finit, finit, Size(4, 4));
+	//for(int i=0; i < 11; i++)
+	//pBackSub->apply(finit, mogMask);
+
+	/*if (n == 19)
+	{
+		if (pTrainedSub == (Ptr<BackgroundSubtractor>)NULL )
+			pTrainedSub = cv::bgsegm::createBackgroundSubtractorCNT();
+
+		memcpy(pTrainedSub, pBackSub, sizeof(cv::bgsegm::BackgroundSubtractorCNT));
+		mogBMask = mogMask.clone();
+	}*/
+
+	/*Mat check = mogMask.clone();
+	char retstr[1024];
+	sprintf(retstr, "%d", n);
+	putText(check, retstr, Point(100, 100), 0, 1, Scalar(255, 0, 0), 3);
+	imshow("mask", check);*/
+
 }
 
 
@@ -318,7 +369,20 @@ bool colorBound(const rs2::video_frame& frame, float dep, bool bfinal)
 
 
 
-	Mat colormat(Size(w, h), CV_8UC4, (void*)frame.get_data(), Mat::AUTO_STEP);
+	Mat colormat(Size(w, h), CV_8UC4, (void*)frame.get_data(), Mat::AUTO_STEP),mf;
+
+	cvtColor(colormat, mf, cv::COLOR_BGRA2BGR);
+
+	auto rr = ProcessEdgeImage(mf, true);
+
+	imshow("img1", std::get<2>(rr)[0]);
+	imshow("img2", std::get<2>(rr)[1]);
+	imshow("img3", std::get<2>(rr)[2]);
+	imshow("img4", std::get<2>(rr)[3]);
+
+	imwrite("out.png", std::get<2>(rr)[1]);
+
+
 	if (!binit)
 	{
 		imwrite("C:\\james\\images\\f0.bmp", colormat);
@@ -336,8 +400,8 @@ bool colorBound(const rs2::video_frame& frame, float dep, bool bfinal)
 			std::cout << "mat error " << std::endl;
 
 
-		runcalib(0);
-		runcalib(1);
+		//runcalib(0);
+		//runcalib(1);
 
 		const std::string outputFileName = "c:\\james\\images\\d_camera_data.xml";
 		const std::string outputFileNamergb = "c:\\james\\images\\rgb_camera_data.xml";
@@ -408,9 +472,88 @@ bool colorBound(const rs2::video_frame& frame, float dep, bool bfinal)
 				cv::projectPoints(prepared3DPoints, rvecs[0], tvecs[0], cameraMatrix, distCoeffs, projectedPoints);
 
 
-				Mat mf;
+				Mat mf , fgMask, src;
+				
+				
 				cvtColor(colormat, mf, cv::COLOR_BGRA2BGR);
+				//src = mf.clone();
+				auto rr =ProcessEdgeImage(mf, true);
 
+				imshow("img1", std::get<2>(rr)[0]);
+				imshow("img2", std::get<2>(rr)[1]);
+				imshow("img3", std::get<2>(rr)[2]);
+				imshow("img4", std::get<2>(rr)[3]);
+
+
+				//blur(mf, mf, Size(4, 4));
+
+				//if (pTrainedSub != (Ptr<BackgroundSubtractor>)NULL)
+				//{
+				//	memcpy(pBackSub, pTrainedSub, sizeof(cv::bgsegm::BackgroundSubtractorCNTImpl));
+				//	mogMask = mogBMask.clone();
+				//}
+
+			/*	pBackSub->apply(src, mogMask);
+
+				fgMask = mogMask.clone();
+				Mat dst1, dst2, canny_output;
+				Mat ele = getStructuringElement(cv::MORPH_DILATE, Size(50, 50));
+				Mat ele2 = getStructuringElement(cv::MORPH_ERODE, Size(50, 50));				
+				cv::erode(fgMask, dst2, ele2);
+				cv:dilate(dst2, fgMask, ele);
+				int thresh = 100;		
+
+				Canny(fgMask, canny_output, thresh, thresh * 2, 3);
+				imshow("colordist", canny_output);*/
+
+				//cvtColor(mf, mf, cv::COLOR_BGR2HSV);
+				
+				//fgMask = mf.clone();
+				//imwrite("curr.png", mf);
+				//imwrite("bg.png", finit);
+
+				//absdiff(mf, finit, fgMask);
+				//for ( int i = 0 ; i < w; i++)
+				//	for (int j = 0; j < h; j++)
+				//	{
+				//		Vec3b c1=mf.at<Vec3b>(j, i);
+				//		Vec3b c2 = finit.at<Vec3b>(j, i);
+
+
+				//		uchar d1 = c2[0] - c1[0];
+				//		uchar d2 = c2[1] - c1[1];
+				//		uchar d3 = c2[2] - c1[2];
+
+				//		if ( (d1 < 50 && d2 < 50) || (d1 < 50 && d3 < 50 ) || (d2 < 50 && d3 < 50))
+				//			fgMask.at<Vec3b>(j, i)=Vec3b(0,0,0);
+				//		else
+				//			fgMask.at<Vec3b>(j, i) = Vec3b(255,255,255);
+				//		//{
+				//		//	if (d1 < 128)
+				//		//		d1 = d1 * 2;
+				//		//	else
+				//		//		d1 = 255;
+				//		//	if (d2 < 128)
+				//		//		d2 = d2 * 2;
+				//		//	else
+				//		//		d2 = 255;
+				//		//	if (d3 < 128)
+				//		//		d3 = d3 * 2;
+				//		//	else
+				//		//		d3 = 255;
+				//		//	fgMask.at<Vec3b>(j, i) = Vec3b(d1, d2, d3);
+				//		//	//cout << i << "," << j << endl;
+				//		//}
+
+
+				//	}
+
+
+
+				//cvtColor(fgMask, fgMask, cv::COLOR_HSV2BGR);
+				//imwrite("diff.png", fgMask);
+
+				//fastNlMeansDenoisingColored(fgMask, mf, 10, 10, 7, 21);
 				
 				
 				Mat mask = Mat(Size(w,h), CV_8UC1, Scalar(GC_BGD));
@@ -444,13 +587,15 @@ bool colorBound(const rs2::video_frame& frame, float dep, bool bfinal)
 				//polylines(mask, ppt, npt, 1, 1, Scalar(100), 100, 8, 0);
 				fillPoly(mask, ppt, npt, 1, Scalar(cv::GC_FGD));
 				polylines(mask, ppt, npt, 1, 1, Scalar(GC_PR_FGD), 30, 8, 0);
+				//polylines(src, ppt, npt, 1, 1, Scalar(128,128,0), 30, 8, 0);
+				//addWeighted(colormat, 0.5, src, 0.5, 0, colormat);
 				Rect rectangle = Rect(minx, miny, maxx- minx, maxy - miny);
 
 				std::vector<cv::Point2f> outPoints;
 				for (int k = 0; k < projectedPoints.size(); k++)
 				{
 					Point out;
-					bool bfind=findCorner(mf,mask, projectedPoints.at(k), out , k );
+					bool bfind = findCorner(mf, mask, projectedPoints.at(k), out, k);
 
 					if (bfind)
 					{
@@ -647,7 +792,7 @@ bool colorBound(const rs2::video_frame& frame, float dep, bool bfinal)
 				if (nsize == 4)
 					bret = true;
 
-				imshow("mask", mask);
+				imshow("mask", mogMask);
 				imshow("color", colormat);
 			}
 		}
