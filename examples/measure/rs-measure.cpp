@@ -244,7 +244,7 @@ int main(int argc, char * argv[]) try
 					if (!bsave)
 					{
 						
-						imwrite("C:\\james\\images\\d0.bmp", dsrc);
+						imwrite("d:\\james\\images\\d0.bmp", dsrc);
 						
 						bsave = true;
 					}

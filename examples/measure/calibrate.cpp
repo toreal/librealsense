@@ -48,11 +48,11 @@ int runcalib(int mod)
 {
 
 	 Settings s;
-	  string inputSettingsFile =  "C:\\james\\images\\default.xml";
+	  string inputSettingsFile =  "d:\\james\\images\\default.xml";
 
 	  if (mod == 1)
 	  {
-		  inputSettingsFile = "C:\\james\\images\\Ddefault.xml";
+		  inputSettingsFile = "d:\\james\\images\\Ddefault.xml";
 	  }
 
 	  
@@ -232,7 +232,7 @@ int mymain(int argc, char* argv[])
 {
     help();
     Settings s;
-    const string inputSettingsFile = argc > 1 ? argv[1] : "C:\\james\\images\\Ddefault.xml";
+    const string inputSettingsFile = argc > 1 ? argv[1] : "d:\\james\\images\\Ddefault.xml";
 
 
 
@@ -307,7 +307,7 @@ int mymain(int argc, char* argv[])
         //for(int i = 0; i < (int)s.imageList.size(); i++ )
 		int i=0;
         {
-            view = imread("C:\\james\\images\\captured.png", 1);
+            view = imread("d:\\james\\images\\captured.png", 1);
 			//view = imread(s.imageList[i], 1);
            // if(view.empty())
             //    continue;

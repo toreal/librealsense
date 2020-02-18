@@ -11,7 +11,7 @@ set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
 if(BUILD_GRAPHICAL_EXAMPLES)
-    add_executable(rs-measure rs-measure.cpp ../example.hpp colorBoundary.cpp calibrate.cpp)
+    add_executable(rs-measure rs-measure.cpp ../example.hpp colorBoundary.cpp calibrate.cpp fm_ocr_scanner.cpp)
     set_property(TARGET rs-measure PROPERTY CXX_STANDARD 11)
     target_link_libraries(rs-measure ${DEPENDENCIES} Threads::Threads  ${OpenCV_LIBS})
     include_directories(rs-measure ../ ./  ../../common  ../../third-party 

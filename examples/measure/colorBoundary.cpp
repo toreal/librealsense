@@ -385,7 +385,7 @@ bool colorBound(const rs2::video_frame& frame, float dep, bool bfinal)
 
 	if (!binit)
 	{
-		imwrite("C:\\james\\images\\f0.bmp", colormat);
+		imwrite("d:\\james\\images\\f0.bmp", colormat);
 	}
 
 
@@ -403,8 +403,8 @@ bool colorBound(const rs2::video_frame& frame, float dep, bool bfinal)
 		//runcalib(0);
 		//runcalib(1);
 
-		const std::string outputFileName = "c:\\james\\images\\d_camera_data.xml";
-		const std::string outputFileNamergb = "c:\\james\\images\\rgb_camera_data.xml";
+		const std::string outputFileName = "d:\\james\\images\\d_camera_data.xml";
+		const std::string outputFileNamergb = "d:\\james\\images\\rgb_camera_data.xml";
 		Size dimageSize;
 		Size imageSize;
 
