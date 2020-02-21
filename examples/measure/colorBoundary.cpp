@@ -168,32 +168,38 @@ void prepare3D(std::vector<cv::Point2f> bookPoints, float book)
 
 void drawIR(Mat src)
 {
+	//Mat tt = imread("D:\\james\\images\\cbase_color.png");
 
+	//std::vector<cv::Point3f> test3DPoints;
+	//test3DPoints.push_back(Point3f(0,0,0));
+	//test3DPoints.push_back(Point3f(30, 0, 0));
+	//test3DPoints.push_back(Point3f(60, 0, 0));
+	//test3DPoints.push_back(Point3f(60, 30, 0));
+	//test3DPoints.push_back(Point3f(60, 60, 0));
 
-	/*
-	
-	std::vector<cv::Point2f> dprojectedPoints;
-	if (prepared3DPoints.size() > 0)
-	{
+	//std::vector<cv::Point2f> dprojectedPoints;
+	//if (test3DPoints.size() > 0)
+	//{
 
-		dprojectedPoints.clear();
-		try
-		{
-			cv::projectPoints(prepared3DPoints, drvecs[0], dtvecs[0], dcameraMatrix, ddistCoeffs, dprojectedPoints);
-		}
-		catch (exception e)
-		{
-			cout << e.what();
-		}
+	//	dprojectedPoints.clear();
+	//	try
+	//	{
+	//		//cv::projectPoints(test3DPoints, drvecs[0], dtvecs[0], dcameraMatrix, ddistCoeffs, dprojectedPoints);
+	//		cv::projectPoints(test3DPoints, rvecs[0], tvecs[0], cameraMatrix, distCoeffs, dprojectedPoints);
+	//	}
+	//	catch (exception e)
+	//	{
+	//		cout << e.what();
+	//	}
 
-		for (int k = 0; k < dprojectedPoints.size(); k++)
-		{
-			circle(src, dprojectedPoints.at(k), 5, Scalar(255));
-		}
+	//	for (int k = 0; k < dprojectedPoints.size(); k++)
+	//	{
+	//		circle(tt, dprojectedPoints.at(k), 5, Scalar(255));
+	//	}
 
-		imshow("mask", src);
-	}
-*/
+	//	imshow("mask", tt);
+	//}
+
 }
 
 Ptr<BackgroundSubtractor> pBackSub;
@@ -257,8 +263,24 @@ void initFrame(const rs2::video_frame& frame, int n)
 
 bool findCorner(Mat img, Mat mask, Point input, Point& output, int cornerType)
 {
+	int h = img.rows;
+	int w = img.cols;
+	int sh = input.y - 50;
+	int sw = input.x - 50;
+	if (sh < 0)
+		sh = 0;
+	if (sw < 0)
+		sw = 0;
+	if (sh > h - 100)
+	{
+		sh = h - 100;
+	}
+	if (sw > w - 100)
+	{
+		sw = w - 100;
+	}
 
-	Rect _rect(input.x - 50, input.y - 50, 100, 100);
+	Rect _rect(sw, sh, 100, 100);
 	Mat subimg,submask;
 	Mat backgroundModel = Mat(Size(65, 1), CV_64FC1);
 	Mat foregroundModel = Mat(Size(65, 1), CV_64FC1);
@@ -297,27 +319,31 @@ bool findCorner(Mat img, Mat mask, Point input, Point& output, int cornerType)
 
 
 	findContours(canny_output, contours, hierarchy, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE, Point(0, 0));
-	std::vector<cv::Point> cnt = contours[0];
-	//auto epsilon = 0.5 * arcLength(cnt, true);
-	//appros.clear();
-	//appros.resize(1);
-	//approxPolyDP(cnt, appros[0], epsilon, false);
-	//ApproxChains(cnt, appros[0], CHAIN_APPROX_SIMPLE );
-
-	//Point2f vtx[4];
 	vector<Point2f> vtx;
-	if (cnt.size() > 0)
-	{
-		//RotatedRect box = minAreaRect(cnt);
-		
-		minEnclosingTriangle(cnt, vtx);
-		//box.points(vtx);
-		for (int i = 0; i < 3; i++)
-			line(canny_output, vtx[i], vtx[(i + 1) % 3], Scalar(128), 1, LINE_AA);
-		
-	}
-	
 
+	if (contours.size() > 0)
+	{
+		std::vector<cv::Point> cnt = contours[0];
+		//auto epsilon = 0.5 * arcLength(cnt, true);
+		//appros.clear();
+		//appros.resize(1);
+		//approxPolyDP(cnt, appros[0], epsilon, false);
+		//ApproxChains(cnt, appros[0], CHAIN_APPROX_SIMPLE );
+
+		//Point2f vtx[4];
+		
+		if (cnt.size() > 0)
+		{
+			//RotatedRect box = minAreaRect(cnt);
+
+			minEnclosingTriangle(cnt, vtx);
+			//box.points(vtx);
+			for (int i = 0; i < 3; i++)
+				line(canny_output, vtx[i], vtx[(i + 1) % 3], Scalar(128), 1, LINE_AA);
+
+		}
+
+	}
 	
 
 	//if (vtx.size()> 0 && appros[0].size() > 0)
@@ -373,14 +399,14 @@ bool colorBound(const rs2::video_frame& frame, float dep, bool bfinal)
 
 	cvtColor(colormat, mf, cv::COLOR_BGRA2BGR);
 
-	auto rr = ProcessEdgeImage(mf, true);
+	/*auto rr = ProcessEdgeImage(mf, true);
 
 	imshow("img1", std::get<2>(rr)[0]);
 	imshow("img2", std::get<2>(rr)[1]);
 	imshow("img3", std::get<2>(rr)[2]);
 	imshow("img4", std::get<2>(rr)[3]);
 
-	imwrite("out.png", std::get<2>(rr)[1]);
+	imwrite("out.png", std::get<2>(rr)[1]);*/
 
 
 	if (!binit)
@@ -399,12 +425,12 @@ bool colorBound(const rs2::video_frame& frame, float dep, bool bfinal)
 		else
 			std::cout << "mat error " << std::endl;
 
+		/*runcalib(1);
+		runcalib(0);		
+		runcalib(2);*/
 
-		//runcalib(0);
-		//runcalib(1);
-
-		const std::string outputFileName = "d:\\james\\images\\d_camera_data.xml";
-		const std::string outputFileNamergb = "d:\\james\\images\\rgb_camera_data.xml";
+		const std::string outputFileName = "d:\\james\\images\\ROut_camera_data.xml";
+		const std::string outputFileNamergb = "d:\\james\\images\\out_camera_data.xml";
 		Size dimageSize;
 		Size imageSize;
 
@@ -792,7 +818,7 @@ bool colorBound(const rs2::video_frame& frame, float dep, bool bfinal)
 				if (nsize == 4)
 					bret = true;
 
-				imshow("mask", mogMask);
+				//imshow("mask", mogMask);
 				imshow("color", colormat);
 			}
 		}

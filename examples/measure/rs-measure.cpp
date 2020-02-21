@@ -129,14 +129,22 @@ int main(int argc, char * argv[]) try
 	//metrics_recorder _recorder;
 	//std::string  _camera_info;
 	
+	char* byfile =  "C:\\Users\\88696\\Documents\\20200221_143548.bag";
 
-
-    cfg.enable_stream(RS2_STREAM_DEPTH); // Enable default depth
-    // For the color stream, set format to RGBA
-    // To allow blending of the color frame on top of the depth frame
-    cfg.enable_stream(RS2_STREAM_COLOR, RS2_FORMAT_RGBA8);
-	cfg.enable_stream(RS2_STREAM_INFRARED);
-	//cfg.enable_stream(RS2_STREAM_COLOR,1920,1080, RS2_FORMAT_ANY);
+	if (byfile != NULL)
+	{
+		cfg.enable_device_from_file(byfile);
+	}
+	else
+	{
+		cfg.enable_stream(RS2_STREAM_DEPTH); // Enable default depth
+				// For the color stream, set format to RGBA
+				// To allow blending of the color frame on top of the depth frame
+		cfg.enable_stream(RS2_STREAM_COLOR, RS2_FORMAT_RGBA8);
+		cfg.enable_stream(RS2_STREAM_INFRARED);
+		//cfg.enable_stream(RS2_STREAM_COLOR,1920,1080, RS2_FORMAT_ANY);
+	}
+	
     auto profile = pipe.start(cfg);
 
     auto sensor = profile.get_device().first<rs2::depth_sensor>();
@@ -149,7 +157,7 @@ int main(int argc, char * argv[]) try
 	
 
     // Set the device to High Accuracy preset of the D400 stereoscopic cameras
-    if (sensor && sensor.is<rs2::depth_stereo_sensor>())
+    if ((byfile == NULL) &&sensor && sensor.is<rs2::depth_stereo_sensor>())
     {
         sensor.set_option(RS2_OPTION_VISUAL_PRESET, RS2_RS400_VISUAL_PRESET_HIGH_ACCURACY);
     }

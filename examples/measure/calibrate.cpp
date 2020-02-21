@@ -52,9 +52,12 @@ int runcalib(int mod)
 
 	  if (mod == 1)
 	  {
-		  inputSettingsFile = "d:\\james\\images\\Ddefault.xml";
+		  inputSettingsFile = "d:\\james\\images\\Ldefault.xml";
 	  }
-
+	  if (mod == 2)
+	  {
+		  inputSettingsFile = "d:\\james\\images\\Rdefault.xml";
+	  }
 	  
     FileStorage fs(inputSettingsFile, FileStorage::READ); // Read the settings
     if (!fs.isOpened())
@@ -180,13 +183,13 @@ int runcalib(int mod)
         Size textSize = getTextSize(msg, 1, 1, 1, &baseLine);
         Point textOrigin(view.cols - 2*textSize.width - 10, view.rows - 2*baseLine - 10);
 
-        if( mode == CAPTURING )
+        /*if( mode == CAPTURING )
         {
             if(s.showUndistorsed)
                 msg = format( "%d/%d Undist", (int)imagePoints.size(), s.nrFrames );
             else
                 msg = format( "%d/%d", (int)imagePoints.size(), s.nrFrames );
-        }
+        }*/
 
         putText( view, msg, textOrigin, 1, 1, mode == CALIBRATED ?  GREEN : RED);
 
