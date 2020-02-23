@@ -3,7 +3,7 @@
 
 //#include <librealsense2/rs.hpp> // Include RealSense Cross Platform API
 //#include <librealsense2/rsutil.h>
-#include <Windows.h>
+//#include <Windows.h>
 
 
 
@@ -36,7 +36,7 @@ using namespace rs2;
 using namespace cv;
 
 void prepare3D(std::vector<cv::Point2f> bookPoints, float book);
-bool colorBound(const rs2::video_frame& frame, float dep, bool  );
+bool colorBound(const Mat& frame, float dep, bool  );
 void drawIR(Mat src);
 void initFrame(const rs2::video_frame& frame,int);
 
@@ -65,6 +65,8 @@ bool                    bprepare = false;
 bool                    bupdate = false;
 
 int                      ninitmog = 20;
+
+Mat                     mycol;
 //snapshot_metrics        _latest_metrics;
 //bool                    _active;
 
@@ -76,7 +78,6 @@ int                      ninitmog = 20;
 //float* dbuf;
 //int depthw=640;
 //int depthh=480;
-
 
 
 
@@ -129,7 +130,7 @@ int main(int argc, char * argv[]) try
 	//metrics_recorder _recorder;
 	//std::string  _camera_info;
 	
-	char* byfile =  "C:\\Users\\88696\\Documents\\20200221_143548.bag";
+	char* byfile = "/Users/james/code/20200221_143548.bag";// "C:\\Users\\88696\\Documents\\20200221_143548.bag";
 
 	if (byfile != NULL)
 	{
@@ -237,8 +238,16 @@ int main(int argc, char * argv[]) try
 						for (int k = 0; k < 4; k++)
 						{
 							projectedPoints.push_back(Point3f(app_state.bpos[k].x/ app_state.real, app_state.bpos[k].y/ app_state.real, app_state.bpos[k].z/ app_state.real));
+
 						}*/
-					app_state.bfinal=colorBound(f, app_state.finalDepth, app_state.bfinal );
+
+ 
+	int h = ((video_frame&)f).get_height();
+	int w = ((video_frame&)f).get_width();
+
+mycol= Mat(cv::Size(w, h), CV_8UC4, (void*)f.get_data(), Mat::AUTO_STEP);
+
+					app_state.bfinal=colorBound(mycol, app_state.finalDepth, app_state.bfinal );
 
 					}
 				}
@@ -344,7 +353,7 @@ int main(int argc, char * argv[]) try
     while(app) // Application still alive?
     {
 		bool initf = false;
-
+/*
 		if ( GetKeyState(VK_SHIFT) & 0x8000)
 		{
 			
@@ -376,7 +385,7 @@ int main(int argc, char * argv[]) try
 			initf = true;
 			ninitmog = 0;
 		}
-
+*/
 
         // Fetch the latest available post-processed frameset
         postprocessed_frames.poll_for_frame(&current_frameset);
@@ -452,15 +461,7 @@ int main(int argc, char * argv[]) try
 				hierarchy.clear();
 
 				findContours(canny_output, contours, hierarchy, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE, Point(0, 0));
-				
-	
-
-
-				
-
-
-
-				
+							
 
 				int ind = 0;
 				if (contours.size() > 0)
@@ -500,11 +501,6 @@ int main(int argc, char * argv[]) try
 					appros.resize(1);
 					approxPolyDP(cnt, appros[0], epsilon, true);
 					//		 convexHull(cnt, appros[0],false,true);
-
-
-
-					
-
 				
 				//	 drawContours(canny_output, appros, 0, Scalar(200),5);
 					if (appros[0].size() == 4)
@@ -718,6 +714,7 @@ int main(int argc, char * argv[]) try
 				}
 
 				//imshow("debug", canny_output);
+				imshow("color",mycol);
 
 			}//has baseD
 			else

@@ -11,7 +11,7 @@
 #include <opencv2/videoio.hpp>
 #include <opencv2/video.hpp>
 //#include <opencv2/video/background_segm.hpp>
-#include <opencv2/bgsegm.hpp>
+//#include <opencv2/bgsegm.hpp>
 
 #include <string>
 #include "calibrate.h"
@@ -226,7 +226,7 @@ void initFrame(const rs2::video_frame& frame, int n)
 	{
 
 		
-		pBackSub = cv::bgsegm::createBackgroundSubtractorCNT(1,true,10,true);
+		//pBackSub = cv::bgsegm::createBackgroundSubtractorCNT(1,true,10,true);
 		binitmog = true;
 
 	}
@@ -263,6 +263,10 @@ void initFrame(const rs2::video_frame& frame, int n)
 
 bool findCorner(Mat img, Mat mask, Point input, Point& output, int cornerType)
 {
+	try
+	{
+		/* code */
+	
 	int h = img.rows;
 	int w = img.cols;
 	int sh = input.y - 50;
@@ -282,16 +286,20 @@ bool findCorner(Mat img, Mat mask, Point input, Point& output, int cornerType)
 
 	Rect _rect(sw, sh, 100, 100);
 	Mat subimg,submask;
-	Mat backgroundModel = Mat(Size(65, 1), CV_64FC1);
-	Mat foregroundModel = Mat(Size(65, 1), CV_64FC1);
+	Mat backgroundModel;// = new Mat();// Mat(Size(65, 1), CV_64FC1);
+	Mat foregroundModel;// = Mat(Size(65, 1), CV_64FC1);
 	Rect rectangle(0, 0, 100, 100);
 
+cout << "copyTo" << endl;
 	img(_rect).copyTo(subimg);
 	mask(_rect).copyTo(submask);
 
+cout << "grabCut" << endl;
+imwrite("subimg.png",subimg);
+imwrite("submask.png",submask);
 	grabCut(subimg, submask, rectangle,
 		backgroundModel, foregroundModel,
-		1, GC_INIT_WITH_MASK);
+		2, GC_INIT_WITH_MASK);
 
 	Mat outputm = Mat::zeros(submask.rows, submask.cols, CV_8U);
 
@@ -308,12 +316,13 @@ bool findCorner(Mat img, Mat mask, Point input, Point& output, int cornerType)
 		}
 	}
 
-
+cout << "Canny" << endl;
 	std::vector<std::vector<cv::Point>> contours;
 	std::vector<std::vector<cv::Point>> appros;
 	std::vector<cv::Vec4i> hierarchy;
 	int thresh = 100;
 	Mat dst1, dst2, canny_output;
+
 
 	Canny(outputm, canny_output, thresh, thresh * 2, 3);
 
@@ -367,23 +376,31 @@ bool findCorner(Mat img, Mat mask, Point input, Point& output, int cornerType)
 
 		circle(canny_output, output, 5, (250));
 		
-		imshow("grabCut", canny_output);
+		//imshow("grabCut", canny_output);
 		return true;
 	}
+
+	}
+	catch(const std::exception& e)
+	{
+		cout << "findCorner fail" << endl;
+		std::cerr << e.what() << '\n';
+	}
+
 
 	return false;
 
 }
 
 
-bool colorBound(const rs2::video_frame& frame, float dep, bool bfinal)
+bool colorBound(const Mat & colormat, float dep, bool bfinal)
 {
 
 	std::vector<cv::Point2f> projectedPoints;
 	
 
-	int h = frame.get_height();
-	int w = frame.get_width();
+	//int h = frame.get_height();
+	//int w = frame.get_width();
 	//frame.get_profile().
 
 	bool bret = bfinal;
@@ -395,7 +412,7 @@ bool colorBound(const rs2::video_frame& frame, float dep, bool bfinal)
 
 
 
-	Mat colormat(Size(w, h), CV_8UC4, (void*)frame.get_data(), Mat::AUTO_STEP),mf;
+	Mat mf;
 
 	cvtColor(colormat, mf, cv::COLOR_BGRA2BGR);
 
@@ -429,8 +446,8 @@ bool colorBound(const rs2::video_frame& frame, float dep, bool bfinal)
 		runcalib(0);		
 		runcalib(2);*/
 
-		const std::string outputFileName = "d:\\james\\images\\ROut_camera_data.xml";
-		const std::string outputFileNamergb = "d:\\james\\images\\out_camera_data.xml";
+		const std::string outputFileName = "/Users/james/code/images/ROut_camera_data.xml";
+		const std::string outputFileNamergb = "/Users/james/code/images/out_camera_data.xml";
 		Size dimageSize;
 		Size imageSize;
 
@@ -505,10 +522,10 @@ bool colorBound(const rs2::video_frame& frame, float dep, bool bfinal)
 				//src = mf.clone();
 				auto rr =ProcessEdgeImage(mf, true);
 
-				imshow("img1", std::get<2>(rr)[0]);
-				imshow("img2", std::get<2>(rr)[1]);
-				imshow("img3", std::get<2>(rr)[2]);
-				imshow("img4", std::get<2>(rr)[3]);
+				 //imshow("img1", std::get<2>(rr)[0]);
+				// imshow("img2", std::get<2>(rr)[1]);
+				// imshow("img3", std::get<2>(rr)[2]);
+				// imshow("img4", std::get<2>(rr)[3]);
 
 
 				//blur(mf, mf, Size(4, 4));
@@ -582,15 +599,15 @@ bool colorBound(const rs2::video_frame& frame, float dep, bool bfinal)
 				//fastNlMeansDenoisingColored(fgMask, mf, 10, 10, 7, 21);
 				
 				
-				Mat mask = Mat(Size(w,h), CV_8UC1, Scalar(GC_BGD));
+				Mat mask = Mat(colormat.size(), CV_8UC1, Scalar(GC_BGD));
 				Mat backgroundModel = Mat(Size(65, 1), CV_64FC1);
 				Mat foregroundModel = Mat(Size(65, 1), CV_64FC1);
 				
 
 
 				Point root[1][4];
-				int minx= w, maxx=0;
-				int miny=h, maxy=0;
+				int minx= colormat.rows, maxx=0;
+				int miny=colormat.cols, maxy=0;
 
 				for (int i = 0; i < projectedPoints.size(); i++)
 				{
@@ -618,9 +635,13 @@ bool colorBound(const rs2::video_frame& frame, float dep, bool bfinal)
 				Rect rectangle = Rect(minx, miny, maxx- minx, maxy - miny);
 
 				std::vector<cv::Point2f> outPoints;
+
+
 				for (int k = 0; k < projectedPoints.size(); k++)
 				{
 					Point out;
+					cout << " #### start find corner  ############## " << k << endl;
+					cout << projectedPoints.at(k) << endl;
 					bool bfind = findCorner(mf, mask, projectedPoints.at(k), out, k);
 
 					if (bfind)
@@ -631,7 +652,7 @@ bool colorBound(const rs2::video_frame& frame, float dep, bool bfinal)
 					}
 				}
 
-
+cout << " find corner ready ############## " << endl;
 
 
 				/*Mat imMat3f;
@@ -819,11 +840,13 @@ bool colorBound(const rs2::video_frame& frame, float dep, bool bfinal)
 					bret = true;
 
 				//imshow("mask", mogMask);
-				imshow("color", colormat);
+				imwrite("bb.bmp",colormat);
+			//	imshow("color", colormat);
 			}
 		}
 		catch (exception e)
 		{
+			cout << "*******************************";
 			cout << e.what();
 
 		}

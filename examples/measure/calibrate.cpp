@@ -1,5 +1,5 @@
 
-#include <windows.h>
+//#include <windows.h>
 #include "calibrate.h"
 #include <iostream>
 #include <stdlib.h>  
@@ -443,7 +443,7 @@ int mymain(int argc, char* argv[])
 			  remap(rview, nview, nmap1, nmap2, INTER_LINEAR);
 
 
-			  //¦bÅÜ¥¿ªº«Ê­±¤W¹º½u
+			  //ï¿½bï¿½Ü¥ï¿½ï¿½ï¿½ï¿½Ê­ï¿½ï¿½Wï¿½ï¿½ï¿½u
 			   line(nview,Point2f(0,0*scale),Point2f(bw*scale,0*scale), Scalar( 0, 0, 255 ),2,8);
 			  line(nview,Point2f(0,60*scale),Point2f(bw*scale,60*scale), Scalar( 0, 255, 0 ),2,8);
 			  line(nview,Point2f(0,77*scale),Point2f(bw*scale,77*scale), Scalar( 0, 0, 255 ),2,8);

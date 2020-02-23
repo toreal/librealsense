@@ -4,7 +4,7 @@
 //#include <librealsense2/rsutil.h>
 
 
-#include <Windows.h>
+//#include <Windows.h>
 
 #define _USE_MATH_DEFINES
 
@@ -492,7 +492,7 @@ public:
 	}
 
 
-	boolean check()
+	bool check()
 	{
 		if (ruler_start.x < 0 || ruler_start.x >= 1)
 			return true;
@@ -522,11 +522,11 @@ public:
 
 	}
 
-	boolean render_simple_distance(
+	bool render_simple_distance(
 		state& s,
 		const window& app)
 	{
-		boolean ret = false;
+		bool ret = false;
 		float x = 15;
 		float y = 15;
 
@@ -863,7 +863,7 @@ public:
 
 
 
-		//§ä¥Xerror ¤jªºÂI
+		//ï¿½ï¿½Xerror ï¿½jï¿½ï¿½ï¿½I
 		if (buf != NULL)
 		{
 			for (int y = 0; y < h; y++)
