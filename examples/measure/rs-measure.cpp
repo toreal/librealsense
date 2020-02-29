@@ -228,9 +228,16 @@ int main(int argc, char * argv[]) try
 				auto profile = f.get_profile();
 				auto stream_type = profile.stream_type();
 				auto stream_format = profile.format();
-
+				
+			
 				if (RS2_STREAM_COLOR == stream_type)
 				{
+						std::cout << "get_frame_number :"<< f.get_frame_number() << std::endl;
+					if ( f.get_frame_number()==3012)
+					{
+						app_state.reset(true);
+					}
+
 					//float pos[12];
 					if (bsave )
 					{
@@ -245,10 +252,11 @@ int main(int argc, char * argv[]) try
 	int h = ((video_frame&)f).get_height();
 	int w = ((video_frame&)f).get_width();
 
-mycol= Mat(cv::Size(w, h), CV_8UC4, (void*)f.get_data(), Mat::AUTO_STEP);
-
-					app_state.bfinal=colorBound(mycol, app_state.finalDepth, app_state.bfinal );
-
+if (!app_state.bfinal)
+{
+	mycol= Mat(cv::Size(w, h), CV_8UC4, (void*)f.get_data(), Mat::AUTO_STEP);
+	app_state.bfinal=colorBound(mycol, app_state.finalDepth, app_state.bfinal );
+}
 					}
 				}
 				if (stream_type == RS2_STREAM_INFRARED)
@@ -436,6 +444,7 @@ mycol= Mat(cv::Size(w, h), CV_8UC4, (void*)f.get_data(), Mat::AUTO_STEP);
 			if (app_state.baseD > 0 && bd > 5 && app_state.bdo && app_state.buf != NULL)
 			{			
 
+std::cout <<"based:" << app_state.baseD << std::endl;
 				// Creating OpenCV Matrix from a color image
 				Mat colormat(Size(depth.get_width(), depth.get_height()), CV_8UC1, (void*)app_state.buf, Mat::AUTO_STEP);
 				
@@ -691,6 +700,7 @@ mycol= Mat(cv::Size(w, h), CV_8UC4, (void*)f.get_data(), Mat::AUTO_STEP);
 								{
 									prepare3D(app_state.conerPoints, app_state.finalDepth);
 								}
+								imshow("color",mycol);
 							}
 					}
 					 }
@@ -714,7 +724,7 @@ mycol= Mat(cv::Size(w, h), CV_8UC4, (void*)f.get_data(), Mat::AUTO_STEP);
 				}
 
 				//imshow("debug", canny_output);
-				imshow("color",mycol);
+				
 
 			}//has baseD
 			else

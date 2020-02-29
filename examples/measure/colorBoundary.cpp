@@ -34,6 +34,7 @@ bool binit = false;
 Mat finit;
 
 std::vector<cv::Point3f> prepared3DPoints;
+std::vector<cv::Point3f> trace3DPoints;
 
 
 void intersectLineWithPlane3D(const float* q,
@@ -102,9 +103,41 @@ void pose2d3d(float book, vector<Point2f>  inputs, vector<Point3f>& newpoints, v
 		wz[2] * pO.at<double>(2, 0);
 
 
+		Mat Rinv = R.inv();
+		trace3DPoints.clear();
 
 	for (int i = 0; i < nsize; i++) {
 		Point2f pd = cam_undist_points.at<Point2f>(i);
+		Point2f npd = cam_undist_points.at<Point2f>((i+1)%nsize);
+
+		Point2f ndir = npd -pd;
+		float dis = (float)sqrt(ndir.x*ndir.x + ndir.y*ndir.y);
+		float nstep =dis/10;
+		ndir = ndir /dis;
+		for ( float j = nstep ; j < dis; j =j+nstep )
+		{
+			Point2f esti = pd + ndir * j;
+			float norm2 = (float)sqrt(pow(esti.x, 2) + pow(esti.y, 2) + 1.0);
+		v[0] = (float)esti.x / norm2;
+		v[1] = (float)esti.y / norm2;
+		v[2] = (float)1.0 / norm2;
+
+		intersectLineWithPlane3D(q, v, wz, ipoint, depth);
+		for (k = 0; k < 3; k++)
+		{
+			//	sum +=pow( old[k]-ipoint[k],2);
+
+			pm.at<double>(k, 0) = (double)ipoint[k] - ptvecs[0].at<double>(0, k);
+
+
+		}
+
+			Mat esipm = Rinv * pm;
+			trace3DPoints.push_back(Point3f(esipm.at<double>(0, 0), esipm.at<double>(1, 0), esipm.at<double>(2, 0)));
+
+
+		}
+		
 
 
 
@@ -133,7 +166,6 @@ void pose2d3d(float book, vector<Point2f>  inputs, vector<Point3f>& newpoints, v
 		}
 
 
-		Mat Rinv = R.inv();
 		Mat ipm = Rinv * pm;
 
 
@@ -397,6 +429,7 @@ bool colorBound(const Mat & colormat, float dep, bool bfinal)
 {
 
 	std::vector<cv::Point2f> projectedPoints;
+	std::vector<cv::Point2f> traceProjectedPoints;
 	
 
 	//int h = frame.get_height();
@@ -712,6 +745,7 @@ cout << " find corner ready ############## " << endl;
 				{
 
 					Point p = Point(projectedPoints[i].x, projectedPoints[i].y);
+					cv::circle(colormat, p, 1, cv::Scalar(255, 0, 0), 2, 8, 0);
 					Point pA = p + Point(-50, -50);
 					Point pB = p + Point(50, 50);
 					cv::rectangle(colormat, pA, pB,
@@ -784,9 +818,10 @@ cout << " find corner ready ############## " << endl;
 				}
 
 				projectedPoints.clear();
-
+				traceProjectedPoints.clear();
 
 				cv::projectPoints(prepared3DPoints, rvecs[0], tvecs[0], cameraMatrix, distCoeffs, projectedPoints);
+				cv::projectPoints(trace3DPoints, rvecs[0], tvecs[0], cameraMatrix, distCoeffs, traceProjectedPoints);
 
 
 
@@ -826,6 +861,11 @@ cout << " find corner ready ############## " << endl;
 					cv::circle(colormat, projectedPoints[i], 1, cv::Scalar(128, 0, 255), 2, 8, 0);
 				}
 
+
+				for (int i = 0; i < traceProjectedPoints.size(); i++)
+				{
+					cv::circle(colormat, traceProjectedPoints[i], 1, cv::Scalar(128, 255, 0), 2, 8, 0);
+				}
 				
 
 				char retstr[10240];
